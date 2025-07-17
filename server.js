@@ -15,7 +15,7 @@ const analyticsRoutes = require('./routes/analytics');
 
 // Middleware imports
 const errorHandler = require('./middleware/errorHandler');
-const validateAuth = require('./middleware/auth');
+const { validateAuth } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
