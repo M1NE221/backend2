@@ -14,7 +14,7 @@ const userRoutes = require('./routes/users');
 const analyticsRoutes = require('./routes/analytics');
 
 // Middleware imports
-const errorHandler = require('./middleware/errorHandler');
+const { errorHandler } = require('./middleware/errorHandler');
 const { validateAuth } = require('./middleware/auth');
 
 const app = express();
