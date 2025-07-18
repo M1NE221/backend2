@@ -77,10 +77,11 @@ app.get('/health', (req, res) => {
 // Temporary mock user middleware for testing (REMOVE when adding auth back!)
 const mockUserForTesting = (req, res, next) => {
   req.user = {
-    usuario_id: 'test-user-id',
+    usuario_id: '550e8400-e29b-41d4-a716-446655440000', // Valid UUID format matching auth user ID
     email: 'test@example.com',
     nombre_negocio: 'Test Business'
   };
+  req.userToken = 'mock-token-for-testing'; // Add mock token for RLS compatibility
   next();
 };
 app.use('/api/conversation', conversationLimiter, mockUserForTesting, conversationRoutes);

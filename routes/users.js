@@ -5,7 +5,6 @@ const { supabase, supabaseAdmin, dbHelpers } = require('../config/database');
 const { validateAuth, optionalAuth } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const logger = require('../utils/logger');
-const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
@@ -59,12 +58,11 @@ router.post(
         throw authError;
       }
 
-      // Create business profile in our database (requires service_role for RLS)
-      const userId = uuidv4();
+      // Create business profile in our database (use auth user ID for proper linking)
       const { data: userData, error: dbError } = await supabaseAdmin
         .from('Usuarios')
         .insert({
-          usuario_id: userId,
+          usuario_id: authData.user.id, // Use Supabase auth user ID for proper linking
           email,
           nombre_negocio,
           creado_en: new Date().toISOString()
@@ -75,7 +73,7 @@ router.post(
       if (dbError) throw dbError;
 
       logger.info('New user registered:', {
-        userId,
+        userId: authData.user.id,
         email,
         businessName: nombre_negocio
       });
@@ -150,14 +148,17 @@ router.post(
         });
       }
 
-      // Get user business data (login context, use service role for RLS)
+      // Get user business profile using authenticated user's ID
       const { data: userData, error: userError } = await supabaseAdmin
         .from('Usuarios')
         .select('*')
-        .eq('email', authData.user.email)
+        .eq('usuario_id', authData.user.id)
         .single();
 
-      if (userError) throw userError;
+      if (userError) {
+        logger.error('Failed to fetch user profile:', userError);
+        throw userError;
+      }
 
       if (!userData) {
         return res.status(403).json({
