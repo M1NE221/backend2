@@ -73,19 +73,8 @@ app.get('/health', (req, res) => {
 });
 
 // API routes
-// TODO: TEMPORARY - Auth removed for testing. MUST add back validateAuth before production!
-// Temporary mock user middleware for testing (REMOVE when adding auth back!)
-const mockUserForTesting = (req, res, next) => {
-  req.user = {
-    usuario_id: '550e8400-e29b-41d4-a716-446655440000', // Valid UUID format matching auth user ID
-    email: 'test@example.com',
-    nombre_negocio: 'Test Business'
-  };
-  // Create a properly formatted mock JWT token (3 parts: header.payload.signature)
-  req.userToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1NTBlODQwMC1lMjliLTQxZDQtYTcxNi00NDY2NTU0NDAwMDAiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20iLCJpYXQiOjE2MjM5NzIzNjB9.mockSignatureForTestingPurposes123456789';
-  next();
-};
-app.use('/api/conversation', conversationLimiter, mockUserForTesting, conversationRoutes);
+// ✅ PRODUCTION READY: Real authentication restored for conversation endpoint
+app.use('/api/conversation', conversationLimiter, validateAuth, conversationRoutes);
 app.use('/api/sales', validateAuth, salesRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/analytics', validateAuth, analyticsRoutes);
