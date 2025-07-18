@@ -45,12 +45,33 @@ router.post(
     const { message, context = [] } = req.body;
     const userId = req.user.usuario_id;
 
-    // Log conversation start
+    // Debug token information
+    const tokenParts = req.userToken ? req.userToken.split('.').length : 0;
+    
+    // Log conversation start with token debugging
     logger.info('Conversation started:', {
       userId,
       messageLength: message.length,
-      contextLength: context.length
+      contextLength: context.length,
+      hasToken: !!req.userToken,
+      tokenParts,
+      tokenPrefix: req.userToken ? req.userToken.substring(0, 20) + '...' : 'none'
     });
+
+    // Validate token format before processing
+    if (req.userToken && tokenParts !== 3) {
+      logger.error('Invalid JWT token format:', {
+        userId,
+        tokenParts,
+        tokenLength: req.userToken.length,
+        tokenSample: req.userToken.substring(0, 50) + '...'
+      });
+      return res.status(500).json({
+        success: false,
+        error: 'Invalid authentication token format',
+        message: 'JWT token must have 3 parts separated by dots'
+      });
+    }
 
     try {
       // Process conversation with AI service (pass user token for RLS)

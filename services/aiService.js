@@ -28,6 +28,17 @@ class AIService {
       // Create RLS-compliant client with user token for database operations
       let userSupabase = null;
       if (userToken) {
+        // Validate token format before using
+        const tokenParts = userToken.split('.');
+        if (tokenParts.length !== 3) {
+          logger.error('AI Service received invalid JWT token:', {
+            userId,
+            tokenParts: tokenParts.length,
+            tokenSample: userToken.substring(0, 50) + '...'
+          });
+          throw new Error(`Invalid JWT token format: Expected 3 parts, got ${tokenParts.length}`);
+        }
+
         const { createClient } = require('@supabase/supabase-js');
         userSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
           global: { 
@@ -39,9 +50,20 @@ class AIService {
       }
       
       // Get user context (use RLS-compliant client for user data)
-      const user = userSupabase 
-        ? await this.getUserByIdWithRLS(userId, userSupabase)
-        : await dbHelpers.getUserById(userId);
+      let user;
+      try {
+        user = userSupabase 
+          ? await this.getUserByIdWithRLS(userId, userSupabase)
+          : await dbHelpers.getUserById(userId);
+      } catch (error) {
+        logger.error('Failed to get user context for AI processing:', {
+          userId,
+          hasUserSupabase: !!userSupabase,
+          hasToken: !!userToken,
+          error: error.message
+        });
+        throw new Error(`User context error: ${error.message}`);
+      }
       const userProducts = await dbHelpers.getUserProducts(userId);
       const recentSales = await dbHelpers.getSalesWithDetails(userId, 5);
       const paymentMethods = await dbHelpers.getPaymentMethods();

@@ -81,7 +81,8 @@ const mockUserForTesting = (req, res, next) => {
     email: 'test@example.com',
     nombre_negocio: 'Test Business'
   };
-  req.userToken = 'mock-token-for-testing'; // Add mock token for RLS compatibility
+  // Create a properly formatted mock JWT token (3 parts: header.payload.signature)
+  req.userToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1NTBlODQwMC1lMjliLTQxZDQtYTcxNi00NDY2NTU0NDAwMDAiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20iLCJpYXQiOjE2MjM5NzIzNjB9.mockSignatureForTestingPurposes123456789';
   next();
 };
 app.use('/api/conversation', conversationLimiter, mockUserForTesting, conversationRoutes);
