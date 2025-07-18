@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { supabase, dbHelpers } = require('../config/database');
+const { createClient } = require('@supabase/supabase-js');
+const { supabase, supabaseAdmin, dbHelpers } = require('../config/database');
 const { validateAuth, optionalAuth } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const logger = require('../utils/logger');
@@ -58,9 +59,9 @@ router.post(
         throw authError;
       }
 
-      // Create business profile in our database
+      // Create business profile in our database (requires service_role for RLS)
       const userId = uuidv4();
-      const { data: userData, error: dbError } = await supabase
+      const { data: userData, error: dbError } = await supabaseAdmin
         .from('Usuarios')
         .insert({
           usuario_id: userId,
@@ -149,8 +150,14 @@ router.post(
         });
       }
 
-      // Get user business data
-      const userData = await dbHelpers.getUserById(authData.user.id);
+      // Get user business data (login context, use service role for RLS)
+      const { data: userData, error: userError } = await supabaseAdmin
+        .from('Usuarios')
+        .select('*')
+        .eq('email', authData.user.email)
+        .single();
+
+      if (userError) throw userError;
 
       if (!userData) {
         return res.status(403).json({
@@ -286,7 +293,16 @@ router.put(
         });
       }
 
-      const { data: updatedUser, error } = await supabase
+      // Use user's JWT token for RLS-compliant update operation
+      const userSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+        global: { 
+          headers: { 
+            Authorization: `Bearer ${req.userToken}` 
+          } 
+        }
+      });
+      
+      const { data: updatedUser, error } = await userSupabase
         .from('Usuarios')
         .update(updateData)
         .eq('usuario_id', userId)

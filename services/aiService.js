@@ -21,12 +21,27 @@ class AIService {
   /**
    * Main conversation handler - processes user input and returns AI response
    */
-  async processConversation(userInput, userId, conversationContext = []) {
+  async processConversation(userInput, userId, conversationContext = [], userToken = null) {
     const startTime = Date.now();
     
     try {
-      // Get user context
-      const user = await dbHelpers.getUserById(userId);
+      // Create RLS-compliant client with user token for database operations
+      let userSupabase = null;
+      if (userToken) {
+        const { createClient } = require('@supabase/supabase-js');
+        userSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+          global: { 
+            headers: { 
+              Authorization: `Bearer ${userToken}` 
+            } 
+          }
+        });
+      }
+      
+      // Get user context (use RLS-compliant client for user data)
+      const user = userSupabase 
+        ? await this.getUserByIdWithRLS(userId, userSupabase)
+        : await dbHelpers.getUserById(userId);
       const userProducts = await dbHelpers.getUserProducts(userId);
       const recentSales = await dbHelpers.getSalesWithDetails(userId, 5);
       const paymentMethods = await dbHelpers.getPaymentMethods();
@@ -296,6 +311,20 @@ ${recentSales.map(sale =>
 Available products:
 ${products.map(p => `- ${p.nombre}`).join('\n')}
 `;
+  }
+
+  /**
+   * Get user by ID using RLS-compliant client
+   */
+  async getUserByIdWithRLS(userId, userSupabase) {
+    const { data, error } = await userSupabase
+      .from('Usuarios')
+      .select('*')
+      .eq('usuario_id', userId)
+      .single();
+    
+    if (error) throw error;
+    return data;
   }
 
   /**

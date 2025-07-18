@@ -53,8 +53,8 @@ router.post(
     });
 
     try {
-      // Process conversation with AI service
-      const result = await aiService.processConversation(message, userId, context);
+      // Process conversation with AI service (pass user token for RLS)
+      const result = await aiService.processConversation(message, userId, context, req.userToken);
 
       // Return response
       res.json({

@@ -1,3 +1,4 @@
+const { createClient } = require('@supabase/supabase-js');
 const { supabase } = require('../config/database');
 const logger = require('../utils/logger');
 
@@ -33,8 +34,16 @@ const validateAuth = async (req, res, next) => {
       });
     }
 
-    // Get user business data from our Usuarios table
-    const { data: userData, error: userError } = await supabase
+    // Get user business data from our Usuarios table (using user's JWT token for RLS)
+    const userSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      global: { 
+        headers: { 
+          Authorization: `Bearer ${token}` 
+        } 
+      }
+    });
+    
+    const { data: userData, error: userError } = await userSupabase
       .from('Usuarios')
       .select('*')
       .eq('email', user.email)
@@ -56,12 +65,13 @@ const validateAuth = async (req, res, next) => {
       });
     }
 
-    // Attach user info to request
+    // Attach user info and token to request for RLS operations
     req.user = {
       ...userData,
       auth_id: user.id,
       email: user.email
     };
+    req.userToken = token; // Preserve JWT token for RLS operations
 
     next();
 
