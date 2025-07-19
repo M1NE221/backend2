@@ -294,16 +294,8 @@ router.put(
         });
       }
 
-      // Use user's JWT token for RLS-compliant update operation
-      const userSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-        global: { 
-          headers: { 
-            Authorization: `Bearer ${req.userToken}` 
-          } 
-        }
-      });
-      
-      const { data: updatedUser, error } = await userSupabase
+      // Use service role for database update (bypasses RLS)
+      const { data: updatedUser, error } = await supabaseAdmin
         .from('Usuarios')
         .update(updateData)
         .eq('usuario_id', userId)

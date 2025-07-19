@@ -1,6 +1,7 @@
 const OpenAI = require('openai');
+const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
-const { dbHelpers } = require('../config/database');
+const { dbHelpers, supabaseAdmin } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
 class AIService {
@@ -19,16 +20,33 @@ class AIService {
   }
 
   /**
+   * Extract user ID from JWT token
+   */
+  extractUserIdFromToken(userToken) {
+    try {
+      const payload = jwt.decode(userToken);
+      if (!payload || !payload.sub) {
+        throw new Error('Invalid token payload');
+      }
+      return payload.sub; // This is the user's UUID from Supabase auth
+    } catch (error) {
+      logger.error('Failed to extract user ID from token:', {
+        error: error.message,
+        tokenSample: userToken ? userToken.substring(0, 20) + '...' : 'none'
+      });
+      throw new Error('Invalid user token');
+    }
+  }
+
+  /**
    * Main conversation handler - processes user input and returns AI response
    */
   async processConversation(userInput, userId, conversationContext = [], userToken = null) {
     const startTime = Date.now();
     
     try {
-      // Create RLS-compliant client with user token for database operations
-      let userSupabase = null;
+      // Validate token format
       if (userToken) {
-        // Validate token format before using
         const tokenParts = userToken.split('.');
         if (tokenParts.length !== 3) {
           logger.error('AI Service received invalid JWT token:', {
@@ -38,41 +56,32 @@ class AIService {
           });
           throw new Error(`Invalid JWT token format: Expected 3 parts, got ${tokenParts.length}`);
         }
-
-        const { createClient } = require('@supabase/supabase-js');
-        userSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-          global: { 
-            headers: { 
-              Authorization: `Bearer ${userToken}` 
-            } 
-          }
-        });
       }
+
+      // Extract authenticated user ID from token for database operations
+      const authenticatedUserId = userToken ? this.extractUserIdFromToken(userToken) : userId;
       
-      // Get user context (use RLS-compliant client for user data)
+      // Get user context using service role (bypasses RLS)
       let user;
       try {
-        user = userSupabase 
-          ? await this.getUserByIdWithRLS(userId, userSupabase)
-          : await dbHelpers.getUserById(userId);
+        user = await dbHelpers.getUserById(authenticatedUserId);
       } catch (error) {
         logger.error('Failed to get user context for AI processing:', {
-          userId,
-          hasUserSupabase: !!userSupabase,
-          hasToken: !!userToken,
+          userId: authenticatedUserId,
           error: error.message
         });
         throw new Error(`User context error: ${error.message}`);
       }
-      const userProducts = await dbHelpers.getUserProducts(userId);
-      const recentSales = await dbHelpers.getSalesWithDetails(userId, 5);
+
+      const userProducts = await dbHelpers.getUserProducts(authenticatedUserId);
+      const recentSales = await dbHelpers.getSalesWithDetails(authenticatedUserId, 5);
       const paymentMethods = await dbHelpers.getPaymentMethods();
 
       // Build system prompt with business context
       const systemPrompt = this.buildSystemPrompt(user, userProducts, paymentMethods, recentSales);
       
       // Check if input contains business data to extract
-      const extractionResult = await this.extractBusinessData(userInput, userId, userProducts, paymentMethods);
+      const extractionResult = await this.extractBusinessData(userInput, authenticatedUserId, userProducts, paymentMethods);
       
       // Generate AI response
       const aiResponse = await this.generateResponse(
@@ -86,7 +95,7 @@ class AIService {
       
       // Log interaction
       logger.logAIInteraction(
-        userId, 
+        authenticatedUserId, 
         userInput, 
         aiResponse.content, 
         processingTime, 
@@ -402,20 +411,6 @@ ${products.map(p => `- ${p.nombre}`).join('\n')}
 
 Recordá: No solo estás registrando datos - eres un socio estratégico ayudando a emprendedores a gestionar sus negocios a través de manejo inteligente de datos e insights accionables cuando realmente importan.
 `;
-  }
-
-  /**
-   * Get user by ID using RLS-compliant client
-   */
-  async getUserByIdWithRLS(userId, userSupabase) {
-    const { data, error } = await userSupabase
-      .from('Usuarios')
-      .select('*')
-      .eq('usuario_id', userId)
-      .single();
-    
-    if (error) throw error;
-    return data;
   }
 
   /**

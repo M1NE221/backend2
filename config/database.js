@@ -2,7 +2,7 @@ const { createClient } = require('@supabase/supabase-js');
 const logger = require('../utils/logger');
 
 // Validate required environment variables
-const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_ANON_KEY'];
+const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_KEY'];
 const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
 
 if (missingEnvVars.length > 0) {
@@ -15,7 +15,7 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-// Public client (for user operations)
+// Public client (for user operations like auth)
 const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
@@ -23,15 +23,13 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-// Admin client (for system operations)
-const supabaseAdmin = supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    })
-  : null;
+// Service role client (for database operations - bypasses RLS)
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
 
 // Database connection test
 const testConnection = async () => {
@@ -54,11 +52,11 @@ const testConnection = async () => {
   }
 };
 
-// Helper functions for common database operations
+// Helper functions for common database operations (using service role)
 const dbHelpers = {
-  // Get user by ID
+  // Get user by ID (using service role)
   async getUserById(userId) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('Usuarios')
       .select('*')
       .eq('usuario_id', userId)
@@ -68,9 +66,9 @@ const dbHelpers = {
     return data;
   },
 
-  // Create a new sale with details
+  // Create a new sale with details (using service role)
   async createSaleWithDetails(saleData, details, payments) {
-    const { data: sale, error: saleError } = await supabase
+    const { data: sale, error: saleError } = await supabaseAdmin
       .from('Ventas')
       .insert(saleData)
       .select()
@@ -85,7 +83,7 @@ const dbHelpers = {
         venta_id: sale.venta_id
       }));
 
-      const { error: detailsError } = await supabase
+      const { error: detailsError } = await supabaseAdmin
         .from('Detalle_ventas')
         .insert(detailsWithSaleId);
 
@@ -99,7 +97,7 @@ const dbHelpers = {
         venta_id: sale.venta_id
       }));
 
-      const { error: paymentsError } = await supabase
+      const { error: paymentsError } = await supabaseAdmin
         .from('Pagos_venta')
         .insert(paymentsWithSaleId);
 
@@ -109,9 +107,9 @@ const dbHelpers = {
     return sale;
   },
 
-  // Get sales with details for a user
+  // Get sales with details for a user (using service role)
   async getSalesWithDetails(userId, limit = 50, offset = 0) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('Ventas')
       .select(`
         *,
@@ -131,9 +129,9 @@ const dbHelpers = {
     return data;
   },
 
-  // Get user's products
+  // Get user's products (using service role)
   async getUserProducts(userId) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('Productos')
       .select(`
         *,
@@ -147,12 +145,11 @@ const dbHelpers = {
     return data;
   },
 
-  // Get payment methods
+  // Get all payment methods (using service role)
   async getPaymentMethods() {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('Metodos_pago')
       .select('*')
-      .eq('disponible', true)
       .order('nombre');
 
     if (error) throw error;
@@ -163,6 +160,6 @@ const dbHelpers = {
 module.exports = {
   supabase,
   supabaseAdmin,
-  testConnection,
-  dbHelpers
+  dbHelpers,
+  testConnection
 }; 
