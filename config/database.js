@@ -68,43 +68,114 @@ const dbHelpers = {
 
   // Create a new sale with details (using service role)
   async createSaleWithDetails(saleData, details, payments) {
-    const { data: sale, error: saleError } = await supabaseAdmin
-      .from('Ventas')
-      .insert(saleData)
-      .select()
-      .single();
+    try {
+      logger.info('Creating sale with details:', {
+        saleData,
+        detailsCount: details?.length || 0,
+        paymentsCount: payments?.length || 0
+      });
 
-    if (saleError) throw saleError;
+      const { data: sale, error: saleError } = await supabaseAdmin
+        .from('Ventas')
+        .insert(saleData)
+        .select()
+        .single();
 
-    // Insert sale details
-    if (details && details.length > 0) {
-      const detailsWithSaleId = details.map(detail => ({
-        ...detail,
-        venta_id: sale.venta_id
-      }));
+      if (saleError) {
+        logger.error('Failed to create sale:', {
+          error: saleError,
+          saleData
+        });
+        throw saleError;
+      }
 
-      const { error: detailsError } = await supabaseAdmin
-        .from('Detalle_ventas')
-        .insert(detailsWithSaleId);
+      logger.info('Sale created successfully:', {
+        saleId: sale.venta_id,
+        total: sale.total_venta
+      });
 
-      if (detailsError) throw detailsError;
+      // Insert sale details
+      if (details && details.length > 0) {
+        const detailsWithSaleId = details.map(detail => ({
+          ...detail,
+          venta_id: sale.venta_id
+        }));
+
+        logger.info('Inserting sale details:', {
+          saleId: sale.venta_id,
+          detailsCount: detailsWithSaleId.length,
+          details: detailsWithSaleId
+        });
+
+        const { error: detailsError } = await supabaseAdmin
+          .from('Detalle_ventas')
+          .insert(detailsWithSaleId);
+
+        if (detailsError) {
+          logger.error('Failed to create sale details:', {
+            error: detailsError,
+            details: detailsWithSaleId,
+            saleId: sale.venta_id
+          });
+          throw detailsError;
+        }
+
+        logger.info('Sale details created successfully:', {
+          saleId: sale.venta_id,
+          detailsCount: detailsWithSaleId.length
+        });
+      }
+
+      // Insert payments
+      if (payments && payments.length > 0) {
+        const paymentsWithSaleId = payments.map(payment => ({
+          ...payment,
+          venta_id: sale.venta_id
+        }));
+
+        logger.info('Inserting sale payments:', {
+          saleId: sale.venta_id,
+          paymentsCount: paymentsWithSaleId.length,
+          payments: paymentsWithSaleId
+        });
+
+        const { error: paymentsError } = await supabaseAdmin
+          .from('Pagos_venta')
+          .insert(paymentsWithSaleId);
+
+        if (paymentsError) {
+          logger.error('Failed to create sale payments:', {
+            error: paymentsError,
+            payments: paymentsWithSaleId,
+            saleId: sale.venta_id
+          });
+          throw paymentsError;
+        }
+
+        logger.info('Sale payments created successfully:', {
+          saleId: sale.venta_id,
+          paymentsCount: paymentsWithSaleId.length
+        });
+      }
+
+      logger.info('Sale creation completed successfully:', {
+        saleId: sale.venta_id,
+        total: sale.total_venta,
+        detailsCount: details?.length || 0,
+        paymentsCount: payments?.length || 0
+      });
+
+      return sale;
+    } catch (error) {
+      logger.error('createSaleWithDetails failed:', {
+        error: error.message,
+        stack: error.stack,
+        saleData,
+        detailsCount: details?.length || 0,
+        paymentsCount: payments?.length || 0
+      });
+      throw error;
     }
-
-    // Insert payments
-    if (payments && payments.length > 0) {
-      const paymentsWithSaleId = payments.map(payment => ({
-        ...payment,
-        venta_id: sale.venta_id
-      }));
-
-      const { error: paymentsError } = await supabaseAdmin
-        .from('Pagos_venta')
-        .insert(paymentsWithSaleId);
-
-      if (paymentsError) throw paymentsError;
-    }
-
-    return sale;
   },
 
   // Get sales with details for a user (using service role)

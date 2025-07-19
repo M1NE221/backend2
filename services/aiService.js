@@ -130,6 +130,23 @@ ${products.map(p => `- ${p.nombre} (ID: ${p.producto_id})`).join('\n')}
 Available payment methods:
 ${paymentMethods.map(pm => `- ${pm.nombre} (ID: ${pm.metodo_id})`).join('\n')}
 
+CRITICAL INSTRUCTIONS:
+- ONLY extract data if the user is describing a COMPLETED TRANSACTION with specific details
+- DO NOT extract data from questions, requests for help, or hypothetical scenarios
+- The user must mention specific products, quantities, and prices
+- Examples that should NOT trigger extraction:
+  * "Can you help me register a sale?"
+  * "How do I record a sale?"
+  * "I want to sell something"
+  * "What should I sell?"
+  * "How much did I sell today?"
+  * "Show me my sales"
+
+Examples that SHOULD trigger extraction:
+  * "Vendí 3 empanadas a $300 cada una, pagaron con MercadoPago"
+  * "I sold 5 items for $100 each, customer paid cash"
+  * "Just completed a sale: 2 coffees at $5 each, paid by card"
+
 Extract business data in this EXACT JSON format (return null if no business data found):
 {
   "hasSaleData": boolean,
@@ -161,11 +178,12 @@ Extract business data in this EXACT JSON format (return null if no business data
   }
 }
 
-Rules:
-- Only extract data if the user is clearly describing a completed transaction
-- Match product names to existing products when possible
-- Calculate subtotals and totals accurately
-- If no business data is present, return {"hasSaleData": false, "hasExpenseData": false}
+VALIDATION RULES:
+- hasSaleData should be true ONLY if there are actual items with quantities and prices
+- All items must have quantity > 0 and unit_price > 0
+- Total must equal the sum of all subtotals
+- Payment methods amounts must sum to the total
+- If no concrete transaction details are provided, return {"hasSaleData": false, "hasExpenseData": false}
 `;
 
     try {
@@ -178,8 +196,53 @@ Rules:
 
       const extractedData = JSON.parse(response.choices[0].message.content);
       
-      // If we have sale data, save it to database
+      // Log what was extracted for debugging
+      logger.info('Data extraction result:', {
+        userId,
+        input: input.substring(0, 100) + '...',
+        hasSaleData: extractedData.hasSaleData,
+        hasExpenseData: extractedData.hasExpenseData,
+        extractedTotal: extractedData.sale?.total || 0,
+        itemCount: extractedData.sale?.items?.length || 0
+      });
+      
+      // Validate extracted sale data before saving
       if (extractedData.hasSaleData && extractedData.sale) {
+        // Validate that we have actual sale data
+        if (!extractedData.sale.items || extractedData.sale.items.length === 0) {
+          logger.warn('Sale extraction had no items, skipping save:', {
+            userId,
+            input: input.substring(0, 100) + '...'
+          });
+          return { extracted: false, reason: 'No items in sale' };
+        }
+
+        // Validate that all items have valid data
+        const invalidItems = extractedData.sale.items.filter(item => 
+          !item.quantity || item.quantity <= 0 || 
+          !item.unit_price || item.unit_price <= 0 ||
+          !item.product_name
+        );
+
+        if (invalidItems.length > 0) {
+          logger.warn('Sale extraction had invalid items, skipping save:', {
+            userId,
+            invalidItems,
+            input: input.substring(0, 100) + '...'
+          });
+          return { extracted: false, reason: 'Invalid item data' };
+        }
+
+        // Validate total
+        if (!extractedData.sale.total || extractedData.sale.total <= 0) {
+          logger.warn('Sale extraction had invalid total, skipping save:', {
+            userId,
+            total: extractedData.sale.total,
+            input: input.substring(0, 100) + '...'
+          });
+          return { extracted: false, reason: 'Invalid total amount' };
+        }
+
         const savedSale = await this.saveSaleData(extractedData.sale, userId);
         return {
           extracted: true,
@@ -223,11 +286,12 @@ Rules:
         anulada: false
       };
 
-      // Prepare sale details
+      // Prepare sale details - FIX: Add promo_id: null to prevent foreign key constraint
       const details = saleData.items.map(item => ({
         detalle_id: uuidv4(),
         venta_id: saleId,
         producto_id: item.product_id,
+        promo_id: null, // Explicitly set to null to avoid foreign key constraint
         precio_unitario: item.unit_price,
         cantidad: item.quantity,
         subtotal: item.subtotal,
@@ -241,6 +305,16 @@ Rules:
         metodo_id: payment.method_id,
         monto: payment.amount
       }));
+
+      logger.info('Preparing to save sale data:', {
+        userId,
+        saleId,
+        total: saleData.total,
+        itemCount: details.length,
+        paymentCount: payments.length,
+        details: details,
+        payments: payments
+      });
 
       // Save to database
       const savedSale = await dbHelpers.createSaleWithDetails(sale, details, payments);
@@ -257,6 +331,53 @@ Rules:
       logger.error('Failed to save sale data:', error);
       throw error;
     }
+  }
+
+  /**
+   * Smart payment method matching for better payment detection
+   */
+  matchPaymentMethod(methodName, availableMethods) {
+    if (!methodName) return null;
+    
+    const normalizedInput = methodName.toLowerCase().trim();
+    
+    // Direct matches
+    const directMatch = availableMethods.find(method => 
+      method.nombre.toLowerCase() === normalizedInput
+    );
+    if (directMatch) return directMatch.metodo_id;
+    
+    // Common variations mapping
+    const variations = {
+      'mp': 'mercadopago',
+      'mercado pago': 'mercadopago', 
+      'efectivo': 'efectivo',
+      'cash': 'efectivo',
+      'tarjeta': 'tarjeta',
+      'card': 'tarjeta',
+      'debito': 'tarjeta de débito',
+      'credito': 'tarjeta de crédito',
+      'qr': 'qr',
+      'transferencia': 'transferencia',
+      'transfer': 'transferencia'
+    };
+    
+    const variation = variations[normalizedInput];
+    if (variation) {
+      const varMatch = availableMethods.find(method => 
+        method.nombre.toLowerCase().includes(variation)
+      );
+      if (varMatch) return varMatch.metodo_id;
+    }
+    
+    // Partial matches
+    const partialMatch = availableMethods.find(method => 
+      method.nombre.toLowerCase().includes(normalizedInput) ||
+      normalizedInput.includes(method.nombre.toLowerCase())
+    );
+    if (partialMatch) return partialMatch.metodo_id;
+    
+    return null;
   }
 
   /**
