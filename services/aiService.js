@@ -147,6 +147,21 @@ Examples that SHOULD trigger extraction:
   * "I sold 5 items for $100 each, customer paid cash"
   * "Just completed a sale: 2 coffees at $5 each, paid by card"
 
+MIXED PAYMENT HANDLING:
+- When user says "mitad efectivo, mitad QR" or "half cash, half card" - automatically calculate splits
+- "mitad" or "half" = total ÷ 2
+- "un tercio" or "one third" = total ÷ 3  
+- "$X en efectivo, resto con tarjeta" = $X cash, (total - $X) card
+- Create separate payment method entries for each payment type
+- Map "QR" → "Billetera Digital", "MP" → "MercadoPago", "efectivo" → "Efectivo"
+
+Examples of mixed payment extraction:
+Input: "pagaron $100, mitad efectivo mitad QR"
+Extract: [{"method_name": "Efectivo", "amount": 50}, {"method_name": "Billetera Digital", "amount": 50}]
+
+Input: "pagaron $60 en efectivo y $40 con tarjeta"  
+Extract: [{"method_name": "Efectivo", "amount": 60}, {"method_name": "Tarjeta", "amount": 40}]
+
 Extract business data in this EXACT JSON format (return null if no business data found):
 {
   "hasSaleData": boolean,
@@ -183,6 +198,7 @@ VALIDATION RULES:
 - All items must have quantity > 0 and unit_price > 0
 - Total must equal the sum of all subtotals
 - Payment methods amounts must sum to the total
+- For mixed payments, create multiple payment_methods entries
 - If no concrete transaction details are provided, return {"hasSaleData": false, "hasExpenseData": false}
 `;
 
@@ -276,6 +292,16 @@ VALIDATION RULES:
     try {
       const saleId = uuidv4();
       
+      // Auto-create missing products
+      for (const item of saleData.items) {
+        if (!item.product_id && item.product_name) {
+          const createdProductId = await this.createMissingProduct(item.product_name, item.unit_price, userId);
+          if (createdProductId) {
+            item.product_id = createdProductId; // Update the item with the new product ID
+          }
+        }
+      }
+      
       // Prepare sale record
       const sale = {
         venta_id: saleId,
@@ -298,13 +324,23 @@ VALIDATION RULES:
         producto_alt: item.product_id ? null : item.product_name
       }));
 
-      // Prepare payments
-      const payments = saleData.payment_methods.map(payment => ({
-        pago_id: uuidv4(),
-        venta_id: saleId,
-        metodo_id: payment.method_id,
-        monto: payment.amount
-      }));
+      // Enhanced payment processing with method matching
+      const paymentMethods = await dbHelpers.getPaymentMethods();
+      const payments = saleData.payment_methods.map(payment => {
+        let methodId = payment.method_id;
+        
+        // If method_id is null, try to match by name
+        if (!methodId && payment.method_name) {
+          methodId = this.matchPaymentMethod(payment.method_name, paymentMethods);
+        }
+        
+        return {
+          pago_id: uuidv4(),
+          venta_id: saleId,
+          metodo_id: methodId,
+          monto: payment.amount
+        };
+      });
 
       logger.info('Preparing to save sale data:', {
         userId,
@@ -322,7 +358,8 @@ VALIDATION RULES:
       logger.logDBOperation('CREATE', 'Ventas', userId, { 
         saleId, 
         total: saleData.total,
-        itemCount: details.length 
+        itemCount: details.length,
+        paymentCount: payments.length
       });
 
       return savedSale;
@@ -330,6 +367,59 @@ VALIDATION RULES:
     } catch (error) {
       logger.error('Failed to save sale data:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Create missing product when mentioned in sale
+   */
+  async createMissingProduct(productName, price, userId) {
+    try {
+      const productId = uuidv4();
+      
+      // Create product
+      const { error: productError } = await supabaseAdmin
+        .from('Productos')
+        .insert({
+          producto_id: productId,
+          usuario_id: userId,
+          nombre: productName,
+          descripcion: `Auto-created from sale`,
+          disponible: true,
+          creado_en: new Date().toISOString()
+        });
+
+      if (productError) {
+        logger.error('Failed to create product:', productError);
+        return null;
+      }
+
+      // Create default price
+      const { error: priceError } = await supabaseAdmin
+        .from('Precios_producto')
+        .insert({
+          precio_id: uuidv4(),
+          producto_id: productId,
+          precio: price,
+          fecha_inicio: new Date().toISOString(),
+          activo: true
+        });
+
+      if (priceError) {
+        logger.error('Failed to create product price:', priceError);
+      }
+
+      logger.info('Auto-created product:', {
+        productId,
+        productName,
+        price,
+        userId
+      });
+
+      return productId;
+    } catch (error) {
+      logger.error('Error creating missing product:', error);
+      return null;
     }
   }
 
@@ -347,7 +437,7 @@ VALIDATION RULES:
     );
     if (directMatch) return directMatch.metodo_id;
     
-    // Common variations mapping
+    // Enhanced variations mapping
     const variations = {
       'mp': 'mercadopago',
       'mercado pago': 'mercadopago', 
@@ -355,9 +445,12 @@ VALIDATION RULES:
       'cash': 'efectivo',
       'tarjeta': 'tarjeta',
       'card': 'tarjeta',
-      'debito': 'tarjeta de débito',
-      'credito': 'tarjeta de crédito',
-      'qr': 'qr',
+      'debito': 'débito',
+      'credito': 'crédito',
+      'qr': 'billetera digital',
+      'codigo qr': 'billetera digital',
+      'billetera': 'billetera digital',
+      'billetera digital': 'billetera digital',
       'transferencia': 'transferencia',
       'transfer': 'transferencia'
     };
@@ -466,17 +559,17 @@ Puedes ayudar a los usuarios con:
 ## TUS INSTRUCCIONES
 
 ### 🎯 MANEJO DE DATOS
-1. **Valida datos importantes:** Si falta información crítica como método de pago, pregunta: "¿Cómo te pagaron esa venta?"
-2. **Estandariza entradas:** Convierte automáticamente variaciones a nombres estándar
-3. **Aprende patrones:** Si un usuario siempre vende empanadas a $300, no cuestiones ese precio
-4. **Detecta inconsistencias:** Si algo parece muy fuera de lo normal, pregunta suavemente
-5. **Nunca adivines:** Pregunta por clarificación si no estás seguro
+1. **Procesa información completa:** Si tenés toda la información necesaria (productos, cantidades, precios, métodos de pago), procesá la venta inmediatamente sin pedir confirmación
+2. **Calcula automáticamente:** "Mitad efectivo, mitad QR" = dividí el total por 2 automáticamente
+3. **Sé decisivo:** No preguntes confirmaciones innecesarias cuando tenés todos los datos
+4. **Solo pregunta cuando falta algo crítico:** Si no mencionan precio o cantidad, entonces sí pregunta
+5. **Mapeo inteligente:** "QR" → "Billetera Digital", "MP" → "MercadoPago"
 
-### 💬 ESTILO DE CONVERSACIÓN
-1. **Sé conversacional:** "¡Perfecto! Registré esa venta para vos."
-2. **Sé útil sin ser molesto:** Solo ofrece insights cuando sean realmente valiosos
-3. **Sé eficiente:** Respuestas concisas pero informativas
-4. **Sé profesional:** Eres un asesor de negocios, no un chatbot casual
+### 💬 ESTILO DE CONVERSACIÓN  
+1. **Sé eficiente:** "¡Perfecto! Registré $22,000 en efectivo y $22,000 con Billetera Digital."
+2. **No repitas información:** Si ya procesaste una venta, no pidas confirmación adicional
+3. **Sé proactivo:** Calculá splits automáticamente en lugar de preguntar
+4. **Respuestas directas:** Evita frases como "¿Puedo confirmar que...?"
 5. **Siempre en español:** Toda comunicación debe ser en español argentino
 
 ### 📈 INSIGHTS INTELIGENTES (Solo cuando sea relevante)
@@ -487,12 +580,26 @@ Puedes ayudar a los usuarios con:
 5. **NO micro-análisis:** Evitar porcentajes pequeños o cambios menores
 
 ### 🔧 MANEJO DE ERRORES
-1. **Información faltante:** "Perfecto, registré la venta. ¿Me podés decir cómo te pagaron?"
+1. **Información genuinamente faltante:** "Perfecto, registré la venta. ¿Me podés decir cómo te pagaron?"
 2. **Correcciones:** "Listo, cambié el precio de $300 a $250. ¿Algo más que corregir?"
 3. **Clarificaciones:** "¿Eran 3 empanadas o 13?"
 4. **Validación suave:** "¿$500 por empanada? Solo para confirmar porque es diferente a tu precio usual."
 
-## EJEMPLOS DE RESPUESTA
+## EJEMPLOS DE RESPUESTA MEJORADOS
+
+**Pago Mixto Automático:**
+Usuario: "Me pagaron mitad efectivo y mitad QR"
+Joe: "Perfecto, registré $22,000 en efectivo y $22,000 con Billetera Digital."
+
+**Venta Completa:**
+Usuario: "Vendí 2 paquetes de tallarines a $22,000 cada uno, pagaron mitad efectivo mitad QR"
+Joe: "¡Excelente! Registré 2 paquetes de tallarines por $44,000 total: $22,000 en efectivo y $22,000 con Billetera Digital."
+
+**NO hacer esto (repetitivo):**
+Joe: "¿Puedo confirmar que vendiste 1 producto por $44,000?" ← EVITAR
+
+**SÍ hacer esto (eficiente):**
+Joe: "Registré la venta de tallarines por $44,000 con pago mixto." ← CORRECTO
 
 **Registro de Venta Completo:**
 Usuario: "Vendí 5 empanadas a 300 pesos cada una, pagaron con Mercado Pago"
@@ -505,14 +612,6 @@ Joe: "Listo, registré 3 medialunas por $450. ¿Cómo te pagaron?"
 **Consulta de Negocio:**
 Usuario: "¿Cuánto vendí hoy?"
 Joe: "Hoy vendiste $3,200 en 8 transacciones. Tu producto más vendido fueron las empanadas con $1,800."
-
-**Corrección de Datos:**
-Usuario: "El último precio estaba mal, eran 250 no 300"
-Joe: "Listo, corregí esa venta de $300 a $250 por empanada. El total ahora es $1,250."
-
-**Insight Relevante:**
-Usuario: "Vendí 20 empanadas"
-Joe: "Registré las 20 empanadas. ¡Es tu mejor día de empanadas de la semana!"
 
 ## CONTEXTO TÉCNICO
 - Tenés acceso a una base de datos completa de negocios con ventas, productos, pagos y datos de usuario
