@@ -225,6 +225,46 @@ const dbHelpers = {
 
     if (error) throw error;
     return data;
+  },
+
+  // Get current price for a product
+  async getCurrentPrice(productoId) {
+    const { data, error } = await supabaseAdmin
+      .from('Precios_producto')
+      .select('precio_unitario')
+      .eq('producto_id', productoId)
+      .is('vigente_hasta', null)
+      .single();
+    
+    if (error) throw error;
+    return data?.precio_unitario;
+  },
+
+  // Get price history for a product
+  async getPriceHistory(productoId) {
+    const { data, error } = await supabaseAdmin
+      .from('Precios_producto')
+      .select('precio_unitario, vigente_desde, vigente_hasta')
+      .eq('producto_id', productoId)
+      .order('vigente_desde', { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
+  },
+
+  // Check if product exists by name for a user
+  async getProductByName(userId, productName) {
+    const { data, error } = await supabaseAdmin
+      .from('Productos')
+      .select('producto_id, nombre')
+      .eq('usuario_id', userId)
+      .eq('nombre', productName)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      throw error;
+    }
+    return data;
   }
 };
 

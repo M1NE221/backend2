@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
-const { dbHelpers } = require('../config/database');
+const { dbHelpers, supabaseAdmin } = require('../config/database');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { checkResourceOwnership } = require('../middleware/auth');
 const logger = require('../utils/logger');
@@ -355,6 +355,145 @@ router.get(
       res.status(500).json({
         success: false,
         error: 'Failed to generate sales analytics'
+      });
+    }
+  })
+);
+
+/**
+ * GET /api/sales/products/:productId/price-history
+ * Get price history for a specific product
+ */
+router.get(
+  '/products/:productId/price-history',
+  [
+    param('productId')
+      .isUUID()
+      .withMessage('Product ID must be a valid UUID')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    const { productId } = req.params;
+    const userId = req.user.usuario_id;
+
+    try {
+      // Verify product ownership
+      const { data: product, error } = await supabaseAdmin
+        .from('Productos')
+        .select('producto_id, nombre')
+        .eq('producto_id', productId)
+        .eq('usuario_id', userId)
+        .single();
+
+      if (error || !product) {
+        return res.status(404).json({
+          success: false,
+          error: 'Product not found'
+        });
+      }
+
+      const priceHistory = await dbHelpers.getPriceHistory(productId);
+
+      res.json({
+        success: true,
+        data: {
+          productId,
+          productName: product.nombre,
+          priceHistory: priceHistory.map(price => ({
+            precio_unitario: parseFloat(price.precio_unitario),
+            vigente_desde: price.vigente_desde,
+            vigente_hasta: price.vigente_hasta,
+            duration_days: price.vigente_hasta 
+              ? Math.ceil((new Date(price.vigente_hasta) - new Date(price.vigente_desde)) / (1000 * 60 * 60 * 24))
+              : null
+          }))
+        }
+      });
+
+    } catch (error) {
+      logger.error('Failed to fetch price history:', {
+        userId,
+        productId,
+        error: error.message
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch price history'
+      });
+    }
+  })
+);
+
+/**
+ * GET /api/sales/products/:productId/current-price
+ * Get current price for a specific product
+ */
+router.get(
+  '/products/:productId/current-price',
+  [
+    param('productId')
+      .isUUID()
+      .withMessage('Product ID must be a valid UUID')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    const { productId } = req.params;
+    const userId = req.user.usuario_id;
+
+    try {
+      // Verify product ownership
+      const { data: product, error } = await supabaseAdmin
+        .from('Productos')
+        .select('producto_id, nombre')
+        .eq('producto_id', productId)
+        .eq('usuario_id', userId)
+        .single();
+
+      if (error || !product) {
+        return res.status(404).json({
+          success: false,
+          error: 'Product not found'
+        });
+      }
+
+      const currentPrice = await dbHelpers.getCurrentPrice(productId);
+
+      res.json({
+        success: true,
+        data: {
+          productId,
+          productName: product.nombre,
+          currentPrice: currentPrice ? parseFloat(currentPrice) : null
+        }
+      });
+
+    } catch (error) {
+      logger.error('Failed to fetch current price:', {
+        userId,
+        productId,
+        error: error.message
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch current price'
       });
     }
   })

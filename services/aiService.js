@@ -292,16 +292,6 @@ VALIDATION RULES:
     try {
       const saleId = uuidv4();
       
-      // Auto-create missing products
-      for (const item of saleData.items) {
-        if (!item.product_id && item.product_name) {
-          const createdProductId = await this.createMissingProduct(item.product_name, item.unit_price, userId);
-          if (createdProductId) {
-            item.product_id = createdProductId; // Update the item with the new product ID
-          }
-        }
-      }
-      
       // Prepare sale record
       const sale = {
         venta_id: saleId,
@@ -311,18 +301,6 @@ VALIDATION RULES:
         incompleta: false,
         anulada: false
       };
-
-      // Prepare sale details - FIX: Add promo_id: null to prevent foreign key constraint
-      const details = saleData.items.map(item => ({
-        detalle_id: uuidv4(),
-        venta_id: saleId,
-        producto_id: item.product_id,
-        promo_id: null, // Explicitly set to null to avoid foreign key constraint
-        precio_unitario: item.unit_price,
-        cantidad: item.quantity,
-        subtotal: item.subtotal,
-        producto_alt: item.product_id ? null : item.product_name
-      }));
 
       // Enhanced payment processing with method matching
       const paymentMethods = await dbHelpers.getPaymentMethods();
@@ -342,27 +320,67 @@ VALIDATION RULES:
         };
       });
 
-      logger.info('Preparing to save sale data:', {
+      logger.info('Preparing to save sale data with enhanced pricing:', {
         userId,
         saleId,
         total: saleData.total,
-        itemCount: details.length,
-        paymentCount: payments.length,
-        details: details,
-        payments: payments
-      });
-
-      // Save to database
-      const savedSale = await dbHelpers.createSaleWithDetails(sale, details, payments);
-      
-      logger.logDBOperation('CREATE', 'Ventas', userId, { 
-        saleId, 
-        total: saleData.total,
-        itemCount: details.length,
+        itemCount: saleData.items.length,
         paymentCount: payments.length
       });
 
-      return savedSale;
+      // Create sale first
+      const { data: createdSale, error: saleError } = await supabaseAdmin
+        .from('Ventas')
+        .insert(sale)
+        .select()
+        .single();
+
+      if (saleError) {
+        logger.error('Failed to create sale:', saleError);
+        throw saleError;
+      }
+
+      // Process each item with enhanced pricing workflow
+      const processedItems = [];
+      for (const item of saleData.items) {
+        try {
+          const productId = await this.processSaleWithPricing(
+            userId,
+            item.product_name,
+            item.unit_price,
+            item.quantity,
+            saleId
+          );
+          processedItems.push({ ...item, product_id: productId });
+        } catch (error) {
+          logger.error('Failed to process sale item with pricing:', {
+            item,
+            error: error.message
+          });
+          throw error;
+        }
+      }
+
+      // Create payments
+      if (payments.length > 0) {
+        const { error: paymentsError } = await supabaseAdmin
+          .from('Pagos_venta')
+          .insert(payments);
+
+        if (paymentsError) {
+          logger.error('Failed to create sale payments:', paymentsError);
+          throw paymentsError;
+        }
+      }
+
+      logger.logDBOperation('CREATE', 'Ventas', userId, { 
+        saleId, 
+        total: saleData.total,
+        itemCount: processedItems.length,
+        paymentCount: payments.length
+      });
+
+      return createdSale;
 
     } catch (error) {
       logger.error('Failed to save sale data:', error);
@@ -371,7 +389,210 @@ VALIDATION RULES:
   }
 
   /**
-   * Create missing product when mentioned in sale
+   * Enhanced product auto-creation with price tracking
+   */
+  async autoCreateProduct(usuarioId, nombreProducto, precioVenta) {
+    try {
+      const productId = uuidv4();
+      
+      // 1. Create the product with auto_creado flag
+      const { error: productError } = await supabaseAdmin
+        .from('Productos')
+        .insert({
+          producto_id: productId,
+          usuario_id: usuarioId,
+          nombre: nombreProducto,
+          auto_creado: true,
+          descripcion: `Auto-created from sale`,
+          disponible: true
+        });
+
+      if (productError) {
+        logger.error('Failed to create product:', productError);
+        return null;
+      }
+
+      // 2. Create the initial price record with vigente_desde
+      const { error: priceError } = await supabaseAdmin
+        .from('Precios_producto')
+        .insert({
+          producto_id: productId,
+          precio_unitario: precioVenta,
+          vigente_desde: new Date().toISOString()
+          // vigente_hasta stays null (current price)
+        });
+
+      if (priceError) {
+        logger.error('Failed to create product price:', priceError);
+        // Don't fail the entire operation if price creation fails
+      }
+
+      logger.info('Auto-created product with price tracking:', {
+        productId,
+        nombreProducto,
+        precioVenta,
+        usuarioId
+      });
+
+      return productId;
+    } catch (error) {
+      logger.error('Error auto-creating product with price:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Update product price with historical tracking
+   */
+  async updateProductPrice(productoId, nuevoPrecio) {
+    try {
+      // 1. Close current price period
+      const { error: closeError } = await supabaseAdmin
+        .from('Precios_producto')
+        .update({ vigente_hasta: new Date().toISOString() })
+        .eq('producto_id', productoId)
+        .is('vigente_hasta', null);
+
+      if (closeError) {
+        logger.error('Failed to close current price period:', closeError);
+        return false;
+      }
+
+      // 2. Create new price record
+      const { error: newPriceError } = await supabaseAdmin
+        .from('Precios_producto')
+        .insert({
+          producto_id: productoId,
+          precio_unitario: nuevoPrecio,
+          vigente_desde: new Date().toISOString()
+        });
+
+      if (newPriceError) {
+        logger.error('Failed to create new price record:', newPriceError);
+        return false;
+      }
+
+      logger.info('Updated product price with historical tracking:', {
+        productoId,
+        nuevoPrecio
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Error updating product price:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get current price for a product
+   */
+  async getCurrentPrice(productoId) {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('Precios_producto')
+        .select('precio_unitario')
+        .eq('producto_id', productoId)
+        .is('vigente_hasta', null)
+        .single();
+      
+      if (error) {
+        logger.error('Failed to get current price:', error);
+        return null;
+      }
+      
+      return data?.precio_unitario;
+    } catch (error) {
+      logger.error('Error getting current price:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get price history for a product
+   */
+  async getPriceHistory(productoId) {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('Precios_producto')
+        .select('precio_unitario, vigente_desde, vigente_hasta')
+        .eq('producto_id', productoId)
+        .order('vigente_desde', { ascending: false });
+      
+      if (error) {
+        logger.error('Failed to get price history:', error);
+        return [];
+      }
+      
+      return data || [];
+    } catch (error) {
+      logger.error('Error getting price history:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Enhanced sale processing with price management
+   */
+  async processSaleWithPricing(usuarioId, nombreProducto, precioVenta, cantidad, ventaId) {
+    try {
+      // 1. Check if product exists using database helper
+      let producto = await dbHelpers.getProductByName(usuarioId, nombreProducto);
+
+      if (!producto) {
+        // Auto-create product with price
+        const newProductId = await this.autoCreateProduct(usuarioId, nombreProducto, precioVenta);
+        if (newProductId) {
+          producto = { producto_id: newProductId, nombre: nombreProducto };
+        } else {
+          throw new Error(`Failed to auto-create product: ${nombreProducto}`);
+        }
+      } else {
+        // Check if price changed for existing product
+        const precioActual = await dbHelpers.getCurrentPrice(producto.producto_id);
+        
+        // Update price if it changed
+        if (precioActual === null || precioActual !== precioVenta) {
+          await this.updateProductPrice(producto.producto_id, precioVenta);
+        }
+      }
+
+      // Create sale detail with producto_id (not producto_alt)
+      const { error: detailError } = await supabaseAdmin
+        .from('Detalle_ventas')
+        .insert({
+          detalle_id: uuidv4(),
+          venta_id: ventaId,
+          producto_id: producto.producto_id, // Use real product ID
+          promo_id: null,
+          precio_unitario: precioVenta,
+          cantidad: cantidad,
+          subtotal: precioVenta * cantidad,
+          producto_alt: null // No longer needed since we have producto_id
+        });
+
+      if (detailError) {
+        logger.error('Failed to create sale detail:', detailError);
+        throw detailError;
+      }
+
+      logger.info('Processed sale with pricing:', {
+        productoId: producto.producto_id,
+        nombreProducto,
+        precioVenta,
+        cantidad,
+        ventaId
+      });
+
+      return producto.producto_id;
+    } catch (error) {
+      logger.error('Error processing sale with pricing:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create missing product when mentioned in sale (DEPRECATED - use autoCreateProduct instead)
    */
   async createMissingProduct(productName, price, userId) {
     try {
