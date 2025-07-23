@@ -13,6 +13,7 @@ const salesRoutes = require('./routes/sales');
 const userRoutes = require('./routes/users');
 const analyticsRoutes = require('./routes/analytics');
 const authRoutes = require('./routes/auth');
+const widgetsRoutes = require('./routes/widgets');
 
 // Middleware imports
 const { errorHandler } = require('./middleware/errorHandler');
@@ -80,6 +81,7 @@ app.use('/api/sales', validateAuth, salesRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/analytics', validateAuth, analyticsRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/widgets', validateAuth, widgetsRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
