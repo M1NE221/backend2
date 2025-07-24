@@ -14,7 +14,7 @@ class AIService {
       apiKey: process.env.OPENAI_API_KEY
     });
     
-    this.model = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
+    this.model = process.env.OPENAI_MODEL || 'gpt-3.5-turbo-1106';
     this.maxTokens = parseInt(process.env.OPENAI_MAX_TOKENS) || 1000;
     this.temperature = parseFloat(process.env.OPENAI_TEMPERATURE) || 0.7;
   }
