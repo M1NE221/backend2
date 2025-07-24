@@ -66,10 +66,14 @@ router.get(
         })
         .map(sale => {
           // Extract products with quantities
-          const items = sale.Detalle_ventas?.map(detail => ({
-            name: detail.producto_alt || detail.Productos?.nombre || 'Unknown Product',
-            qty: parseFloat(detail.cantidad)
-          })) || [];
+          const items = sale.Detalle_ventas?.map(detail => {
+            const baseName = detail.producto_alt || detail.Productos?.nombre || 'Unknown Product';
+            const fullName = detail.presentacion ? `${detail.presentacion} de ${baseName}` : baseName;
+            return {
+              name: fullName,
+              qty: parseFloat(detail.cantidad)
+            };
+          }) || [];
 
           const products = items.map(i => i.name);
 

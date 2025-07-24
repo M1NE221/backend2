@@ -169,6 +169,7 @@ Extract business data in this EXACT JSON format (return null if no business data
     "items": [
       {
         "product_name": "string",
+        "presentation": "string or null",
         "product_id": "uuid or null",
         "quantity": number,
         "unit_price": number,
@@ -364,7 +365,8 @@ VALIDATION RULES:
             item.product_name,
             item.unit_price,
             item.quantity,
-            saleId
+            saleId,
+            item.presentation || null
           );
           processedItems.push({ ...item, product_id: productId });
         } catch (error) {
@@ -549,7 +551,7 @@ VALIDATION RULES:
   /**
    * Enhanced sale processing with price management
    */
-  async processSaleWithPricing(usuarioId, nombreProducto, precioVenta, cantidad, ventaId) {
+  async processSaleWithPricing(usuarioId, nombreProducto, precioVenta, cantidad, ventaId, presentation = null) {
     try {
       // 1. Check if product exists using database helper
       let producto = await dbHelpers.getProductByName(usuarioId, nombreProducto);
@@ -583,7 +585,8 @@ VALIDATION RULES:
           precio_unitario: precioVenta,
           cantidad: cantidad,
           subtotal: precioVenta * cantidad,
-          producto_alt: nombreProducto // guardar descripción tal cual se mencionó
+          producto_alt: nombreProducto, // guardar descripción tal cual se mencionó
+          presentacion: presentation
         });
 
       if (detailError) {
