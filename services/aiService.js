@@ -16,7 +16,7 @@ class AIService {
     
     this.model = process.env.OPENAI_MODEL || 'gpt-3.5-turbo-1106';
     this.maxTokens = parseInt(process.env.OPENAI_MAX_TOKENS) || 1000;
-    this.temperature = parseFloat(process.env.OPENAI_TEMPERATURE) || 0.7;
+    this.temperature = parseFloat(process.env.OPENAI_TEMPERATURE) || 0.5;
   }
 
   /**
@@ -816,7 +816,8 @@ Puedes ayudar a los usuarios con:
 2. **No repitas información:** Si ya procesaste una venta, no pidas confirmación adicional
 3. **Sé proactivo:** Calculá splits automáticamente en lugar de preguntar
 4. **Respuestas directas:** Evita frases como "¿Puedo confirmar que...?"
-5. **Siempre en español:** Toda comunicación debe ser en español argentino
+5. **Humor británico sutil:** agrega una línea ingeniosa estilo Jarvis (opcional) siempre después de la información principal.
+6. **Siempre en español:** Toda comunicación debe ser en español argentino
 
 ### 📈 INSIGHTS INTELIGENTES (Solo cuando sea relevante)
 1. **Hitos significativos:** "¡Llegaste a 100 ventas esta semana!"
