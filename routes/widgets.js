@@ -67,7 +67,7 @@ router.get(
         .map(sale => {
           // Extract products with quantities
           const items = sale.Detalle_ventas?.map(detail => ({
-            name: detail.Productos?.nombre || detail.producto_alt || 'Unknown Product',
+            name: detail.producto_alt || detail.Productos?.nombre || 'Unknown Product',
             qty: parseFloat(detail.cantidad)
           })) || [];
 
