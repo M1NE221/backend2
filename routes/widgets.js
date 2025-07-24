@@ -65,16 +65,20 @@ router.get(
           return !sale.anulada;
         })
         .map(sale => {
-          // Extract products from sale details
-          const products = sale.Detalle_ventas?.map(detail => 
-            detail.Productos?.nombre || detail.producto_alt || 'Unknown Product'
-          ) || [];
+          // Extract products with quantities
+          const items = sale.Detalle_ventas?.map(detail => ({
+            name: detail.Productos?.nombre || detail.producto_alt || 'Unknown Product',
+            qty: parseFloat(detail.cantidad)
+          })) || [];
+
+          const products = items.map(i => i.name);
 
           return {
             id: sale.venta_id,
             customer: `Customer ${sale.venta_id.substring(0, 8)}`, // Placeholder - could be enhanced with customer data
             amount: parseFloat(sale.total_venta),
-            products: products,
+            products: products,      // quick list (compatibilidad)
+            items: items,            // nuevo: detalle con cantidades
             timestamp: sale.fecha_hora,
             status: sale.anulada ? 'cancelled' : 'completed'
           };
