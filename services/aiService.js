@@ -583,7 +583,7 @@ VALIDATION RULES:
           precio_unitario: precioVenta,
           cantidad: cantidad,
           subtotal: precioVenta * cantidad,
-          producto_alt: null // No longer needed since we have producto_id
+          producto_alt: nombreProducto // guardar descripción tal cual se mencionó
         });
 
       if (detailError) {
