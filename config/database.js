@@ -265,6 +265,36 @@ const dbHelpers = {
       throw error;
     }
     return data;
+  },
+
+  // Get or create customer by name for a user
+  async getOrCreateCustomer(userId, customerName) {
+    if (!customerName) return null;
+
+    // Buscar cliente existente (case-insensitive)
+    const { data: existing, error: searchError } = await supabaseAdmin
+      .from('Clientes')
+      .select('cliente_id')
+      .eq('usuario_id', userId)
+      .ilike('nombre', customerName)
+      .single();
+
+    if (searchError && searchError.code !== 'PGRST116') {
+      throw searchError;
+    }
+
+    if (existing) return existing.cliente_id;
+
+    // Crear nuevo
+    const { data: inserted, error: insertError } = await supabaseAdmin
+      .from('Clientes')
+      .insert({ usuario_id: userId, nombre: customerName })
+      .select('cliente_id')
+      .single();
+
+    if (insertError) throw insertError;
+
+    return inserted.cliente_id;
   }
 };
 

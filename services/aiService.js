@@ -292,6 +292,20 @@ VALIDATION RULES:
     try {
       const saleId = uuidv4();
       
+      // Cliente
+      let clienteId = null;
+      if (saleData.customer) {
+        try {
+          clienteId = await dbHelpers.getOrCreateCustomer(userId, saleData.customer);
+        } catch (error) {
+          logger.error('Failed to get/create customer:', {
+            userId,
+            customer: saleData.customer,
+            error: error.message
+          });
+        }
+      }
+
       // Prepare sale record
       const sale = {
         venta_id: saleId,
@@ -299,7 +313,8 @@ VALIDATION RULES:
         total_venta: saleData.total,
         fecha_hora: new Date().toISOString(),
         incompleta: false,
-        anulada: false
+        anulada: false,
+        cliente_id: clienteId
       };
 
       // Enhanced payment processing with method matching
