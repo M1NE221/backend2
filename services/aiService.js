@@ -147,6 +147,11 @@ Examples that SHOULD trigger extraction:
   * "I sold 5 items for $100 each, customer paid cash"
   * "Just completed a sale: 2 coffees at $5 each, paid by card"
 
+PAYMENT METHOD MAPPING (obligatorio):
+- "qr", "QR", "código QR" → "Billetera Digital"
+- "mp", "MP", "MercadoPago", "mercadopago" → "MercadoPago"
+- "efectivo", "cash" → "Efectivo"
+
 MIXED PAYMENT HANDLING:
 - When user says "mitad efectivo, mitad QR" or "half cash, half card" - automatically calculate splits
 - "mitad" or "half" = total ÷ 2
@@ -804,6 +809,7 @@ Puedes ayudar a los usuarios con:
 3. **Sé decisivo:** No preguntes confirmaciones innecesarias cuando tenés todos los datos
 4. **Solo pregunta cuando falta algo crítico:** Si no mencionan precio o cantidad, entonces sí pregunta
 5. **Mapeo inteligente:** "QR" → "Billetera Digital", "MP" → "MercadoPago"
+6. **No repreguntes método de pago si ya se deduce por mapeo.**
 
 ### 💬 ESTILO DE CONVERSACIÓN  
 1. **Sé eficiente:** "¡Perfecto! Registré $22,000 en efectivo y $22,000 con Billetera Digital."
