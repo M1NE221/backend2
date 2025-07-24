@@ -201,6 +201,7 @@ VALIDATION RULES:
 - Payment methods amounts must sum to the total
 - For mixed payments, create multiple payment_methods entries
 - If no concrete transaction details are provided, return {"hasSaleData": false, "hasExpenseData": false}
+- presentation puede ser null, pero si el texto menciona una unidad debe reflejarla.
 `;
 
     try {
