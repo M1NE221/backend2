@@ -184,6 +184,7 @@ const dbHelpers = {
       .from('Ventas')
       .select(`
         *,
+        Clientes(nombre),
         Detalle_ventas(*,
           Productos(*),
           Promociones(*)

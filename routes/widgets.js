@@ -73,9 +73,11 @@ router.get(
 
           const products = items.map(i => i.name);
 
+          const customerName = sale.Clientes?.nombre || null;
+
           return {
             id: sale.venta_id,
-            customer: `Customer ${sale.venta_id.substring(0, 8)}`, // Placeholder - could be enhanced with customer data
+            customer: customerName,
             amount: parseFloat(sale.total_venta),
             products: products,      // quick list (compatibilidad)
             items: items,            // nuevo: detalle con cantidades
