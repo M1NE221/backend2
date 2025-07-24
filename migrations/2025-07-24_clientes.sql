@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS public."Clientes" (
 
 -- Índice para búsquedas rápidas por usuario + nombre
 CREATE INDEX IF NOT EXISTS idx_clientes_usuario_nombre
-  ON public.Clientes(usuario_id, lower(nombre));
+  ON public."Clientes" (usuario_id, lower(nombre));
 
 -- 2. Columna cliente_id en Ventas (si no existe)
 DO $$
