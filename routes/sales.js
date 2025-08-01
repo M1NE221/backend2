@@ -499,4 +499,149 @@ router.get(
   })
 );
 
+/**
+ * PUT /api/sales/:saleId
+ * Update a sale - modify total and client
+ */
+router.put(
+  '/:saleId',
+  [
+    param('saleId')
+      .isUUID()
+      .withMessage('Sale ID must be a valid UUID'),
+    body('total_venta')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Total must be a positive number'),
+    body('cliente_id')
+      .optional()
+      .isUUID()
+      .withMessage('Client ID must be a valid UUID'),
+    body('notas')
+      .optional()
+      .isLength({ max: 500 })
+      .withMessage('Notes must be less than 500 characters')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    const { saleId } = req.params;
+    const { total_venta, cliente_id, notas } = req.body;
+    const userId = req.user.usuario_id;
+
+    try {
+      // First check if sale exists and belongs to user
+      const { data: existingSale, error: fetchError } = await supabaseAdmin
+        .from('Ventas')
+        .select('venta_id, usuario_id, anulada, total_venta')
+        .eq('venta_id', saleId)
+        .eq('usuario_id', userId)
+        .single();
+
+      if (fetchError) {
+        if (fetchError.code === 'PGRST116') {
+          return res.status(404).json({
+            success: false,
+            error: 'Sale not found'
+          });
+        }
+        throw fetchError;
+      }
+
+      if (existingSale.anulada) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot edit a cancelled sale'
+        });
+      }
+
+      // Verify client belongs to user if client_id is provided
+      if (cliente_id) {
+        const { data: client, error: clientError } = await supabaseAdmin
+          .from('Clientes')
+          .select('cliente_id')
+          .eq('cliente_id', cliente_id)
+          .eq('usuario_id', userId)
+          .single();
+
+        if (clientError || !client) {
+          return res.status(400).json({
+            success: false,
+            error: 'Client not found or does not belong to user'
+          });
+        }
+      }
+
+      // Prepare update data - only include provided fields
+      const updateData = {};
+      if (total_venta !== undefined) updateData.total_venta = total_venta;
+      if (cliente_id !== undefined) updateData.cliente_id = cliente_id;
+      if (notas !== undefined) updateData.notas = notas;
+
+      // Only proceed if there's something to update
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'No fields provided to update'
+        });
+      }
+
+      // Update sale
+      const { data: updatedSale, error: updateError } = await supabaseAdmin
+        .from('Ventas')
+        .update(updateData)
+        .eq('venta_id', saleId)
+        .select(`
+          *,
+          Clientes(nombre),
+          Detalle_ventas(*,
+            Productos(*),
+            Promociones(*)
+          ),
+          Pagos_venta(*,
+            Metodos_pago(*)
+          )
+        `)
+        .single();
+
+      if (updateError) throw updateError;
+
+      logger.logDBOperation('UPDATE', 'Ventas', userId, {
+        saleId,
+        updatedFields: Object.keys(updateData),
+        oldTotal: existingSale.total_venta,
+        newTotal: updateData.total_venta || existingSale.total_venta
+      });
+
+      res.json({
+        success: true,
+        data: {
+          sale: updatedSale,
+          message: 'Sale updated successfully'
+        }
+      });
+
+    } catch (error) {
+      logger.error('Failed to update sale:', {
+        userId,
+        saleId,
+        updateData,
+        error: error.message
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update sale'
+      });
+    }
+  })
+);
+
 module.exports = router; 
