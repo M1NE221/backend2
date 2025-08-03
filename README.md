@@ -1,4 +1,4 @@
-# Joe AI Backend - Voice-First Business Consultant
+# Perla AI Backend - Voice-First Business Consultant
 
 An intelligent AI backend service that transforms natural conversation into structured business data. Built for small businesses to manage operations through voice interaction.
 

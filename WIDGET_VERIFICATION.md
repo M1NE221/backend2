@@ -2,13 +2,13 @@
 
 ## ✅ **Status: PRODUCTION READY**
 
-All widget endpoints have been verified and are correctly formatted for the Joe desktop app.
+All widget endpoints have been verified and are correctly formatted for the Perla desktop app.
 
 ## **Response Format Verification**
 
 ### **✅ All Endpoints Return Correct Format**
 
-All three widget endpoints return responses in the exact format expected by the Joe desktop app:
+All three widget endpoints return responses in the exact format expected by the Perla desktop app:
 
 ```json
 {
@@ -235,7 +235,7 @@ export TEST_TOKEN="your-test-token"
 node test-widget-format.js
 ```
 
-## **Integration with Joe Desktop App**
+## **Integration with Perla Desktop App**
 
 ### **✅ Ready for Integration**
 
@@ -295,7 +295,7 @@ node test-widget-format.js
 
 ### **🎉 VERIFICATION COMPLETE**
 
-All widget endpoints are **PRODUCTION READY** and properly formatted for the Joe desktop app:
+All widget endpoints are **PRODUCTION READY** and properly formatted for the Perla desktop app:
 
 ✅ **Response Format**: All endpoints return `{ success: true, data: {...} }`  
 ✅ **Authentication**: Bearer token authentication working  
@@ -303,14 +303,14 @@ All widget endpoints are **PRODUCTION READY** and properly formatted for the Joe
 ✅ **Performance**: < 500ms response times  
 ✅ **Error Handling**: Comprehensive validation and error responses  
 ✅ **Security**: Production-ready security measures  
-✅ **Integration**: Ready for Joe desktop app integration  
+✅ **Integration**: Ready for Perla desktop app integration
 
 ### **Next Steps**
 
 1. **Deploy to Production**: Push the verified endpoints to production
-2. **Desktop App Integration**: Connect Joe desktop app to these endpoints
+2. **Desktop App Integration**: Connect Perla desktop app to these endpoints
 3. **Real-time Testing**: Test with actual conversation flows
 4. **Performance Monitoring**: Monitor response times and usage
 5. **User Feedback**: Gather feedback on widget functionality
 
-The widget endpoints are ready to provide real-time, contextual data to the Joe desktop app, enhancing the user experience with immediate business insights during conversations. 
+The widget endpoints are ready to provide real-time, contextual data to the Perla desktop app, enhancing the user experience with immediate business insights during conversations.
