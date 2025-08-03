@@ -2,7 +2,7 @@
 
 ## Overview
 
-The widget endpoints provide real-time data for the Joe desktop app's contextual widgets. These endpoints are designed to show users what's being registered during conversations, providing immediate feedback and business insights.
+The widget endpoints provide real-time data for the Perla desktop app's contextual widgets. These endpoints are designed to show users what's being registered during conversations, providing immediate feedback and business insights.
 
 ## Authentication
 
@@ -151,7 +151,7 @@ curl -H "Authorization: Bearer <token>" \
      "http://localhost:3000/api/widgets/products?status=all"
 ```
 
-## Integration with Joe Desktop App
+## Integration with Perla Desktop App
 
 ### Real-time Updates
 
@@ -337,7 +337,7 @@ This will provide detailed request/response logging for troubleshooting.
 
 ## Conclusion
 
-The widget endpoints provide a robust foundation for real-time data display in the Joe desktop app. They are designed to be:
+The widget endpoints provide a robust foundation for real-time data display in the Perla desktop app. They are designed to be:
 
 - **Fast**: Optimized for sub-500ms response times
 - **Reliable**: Comprehensive error handling and validation
@@ -345,4 +345,4 @@ The widget endpoints provide a robust foundation for real-time data display in t
 - **Scalable**: Designed for multi-tenant architecture
 - **Extensible**: Easy to add new widgets and features
 
-The endpoints integrate seamlessly with the existing Joe AI conversation system and provide immediate feedback to users about their business operations. 
+The endpoints integrate seamlessly with the existing Perla AI conversation system and provide immediate feedback to users about their business operations.

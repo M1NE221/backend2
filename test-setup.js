@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * Joe AI Backend Setup Test
+ * Perla AI Backend Setup Test
  * Quick verification script to test backend components
  */
 
 const fs = require('fs');
 const path = require('path');
 
-console.log('🤖 Joe AI Backend - Setup Test\n');
+console.log('🤖 Perla AI Backend - Setup Test\n');
 
 // Check required files
 const requiredFiles = [
@@ -127,7 +127,7 @@ console.log('- README.md for full setup instructions');
 console.log('- env.example for environment variable template');
 console.log('- API endpoints documented in README.md');
 
-console.log('\n✨ Joe AI Backend setup verification complete!');
+console.log('\n✨ Perla AI Backend setup verification complete!');
 
 if (missingFiles.length === 0) {
   console.log('🚀 Ready for configuration and deployment!');

@@ -136,7 +136,7 @@ async function runAllTests() {
   
   console.log('\n🎯 All tests completed!');
   console.log('\n📝 Next Steps:');
-  console.log('1. Test with actual Joe desktop app');
+  console.log('1. Test with actual Perla desktop app');
   console.log('2. Verify real token authentication');
   console.log('3. Test with production data');
 }

@@ -1,5 +1,5 @@
 {
-  "name": "joe-ai-backend",
+  "name": "perla-ai-backend",
   "version": "1.0.0",
   "description": "Voice-first AI business consultant backend - Jarvis for small businesses",
   "main": "server.js",

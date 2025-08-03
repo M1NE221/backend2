@@ -2,7 +2,7 @@
 
 ## Overview
 
-This enhancement implements automatic price tracking and historical price management for the Joe AI business consultant. When users sell unregistered products, the system now creates products with complete price history tracking, enabling price performance analytics and consistent pricing.
+This enhancement implements automatic price tracking and historical price management for the Perla AI business consultant. When users sell unregistered products, the system now creates products with complete price history tracking, enabling price performance analytics and consistent pricing.
 
 ## Key Features
 
@@ -248,7 +248,7 @@ The implementation uses the existing `Precios_producto` table structure:
 
 ## Conclusion
 
-This enhancement significantly improves the product management and pricing capabilities of the Joe AI business consultant. By implementing automatic price tracking and historical price management, the system now provides:
+This enhancement significantly improves the product management and pricing capabilities of the Perla AI business consultant. By implementing automatic price tracking and historical price management, the system now provides:
 
 - **Better Data Quality**: Consistent pricing and complete history
 - **Enhanced Analytics**: Price performance insights
