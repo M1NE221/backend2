@@ -16,7 +16,7 @@ const logFormat = winston.format.combine(
 const logger = winston.createLogger({
   level: logLevel,
   format: logFormat,
-  defaultMeta: { service: 'joe-ai-backend' },
+  defaultMeta: { service: 'perla-ai-backend' },
   transports: [
     // Write all logs to console
     new winston.transports.Console({

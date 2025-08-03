@@ -86,7 +86,7 @@ app.use('/api/widgets', validateAuth, widgetsRoutes);
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    message: 'Joe AI Backend - Voice-First Business Consultant',
+    message: 'Perla AI Backend - Voice-First Business Consultant',
     version: '1.0.0',
     status: 'operational',
     docs: '/api/docs'
@@ -118,7 +118,7 @@ process.on('SIGINT', () => {
 // Start server
 if (require.main === module) {
   app.listen(PORT, () => {
-    logger.info(`🚀 Joe AI Backend running on port ${PORT}`);
+    logger.info(`🚀 Perla AI Backend running on port ${PORT}`);
     logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     logger.info(`🔗 Health check: http://localhost:${PORT}/health`);
   });

@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 const { dbHelpers, supabaseAdmin } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { buildPerlaPrompt } = require('../prompts/perlaPrompt');
 
 class AIService {
   constructor() {
@@ -764,7 +765,12 @@ Acknowledge this transaction naturally and provide relevant business insights.
    * Build system prompt with user context
    */
   buildSystemPrompt(user, products, paymentMethods, recentSales) {
-    return `
+    return buildPerlaPrompt(user, products, paymentMethods, recentSales);
+  }
+
+  /* Old prompt removed */
+
+  /*
 Eres Joe, un consultor de negocios AI y asistente personal para pequeños empresarios y emprendedores. Eres el equivalente digital de Jarvis de Iron Man, pero especializado en gestión empresarial.
 
 ## TU IDENTIDAD CENTRAL
