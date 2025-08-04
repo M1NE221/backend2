@@ -172,7 +172,7 @@ router.get(
 );
 
 /**
- * DELETE /api/v1/sales/:venta_id
+ * DELETE /api/sales/:venta_id
  * Elimina una venta de forma permanente
  */
 router.delete('/:venta_id', async (req, res) => {
@@ -444,7 +444,7 @@ router.get(
 const CAMPOS_PERMITIDOS = ['total_venta', 'incompleta', 'anulada', 'fecha_hora', 'cliente_id'];
 
 /**
- * PUT /api/v1/sales/:venta_id
+ * PUT /api/sales/:venta_id
  * Editar una venta existente
  */
 router.put('/:venta_id', async (req, res) => {
