@@ -176,7 +176,7 @@ router.get(
  * Elimina una venta de forma permanente
  */
 router.delete('/:venta_id', async (req, res) => {
-  const usuarioId = req.user.id;
+  const usuarioId = req.user.usuario_id;
   const { venta_id } = req.params;
 
   try {
@@ -448,7 +448,7 @@ const CAMPOS_PERMITIDOS = ['total_venta', 'incompleta', 'anulada', 'fecha_hora',
  * Editar una venta existente
  */
 router.put('/:venta_id', async (req, res) => {
-  const usuarioId = req.user.id;
+  const usuarioId = req.user.usuario_id;
   const { venta_id } = req.params;
   const body = req.body || {};
 

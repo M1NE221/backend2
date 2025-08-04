@@ -10,7 +10,6 @@ const logger = require('./utils/logger');
 // Route imports
 const conversationRoutes = require('./routes/conversation');
 const salesRoutes = require('./routes/sales');
-const salesRoutes = require('./routes/sales');
 const userRoutes = require('./routes/users');
 const analyticsRoutes = require('./routes/analytics');
 const authRoutes = require('./routes/auth');
@@ -78,7 +77,6 @@ app.get('/health', (req, res) => {
 // API routes
 // ✅ PRODUCTION READY: Real authentication restored for conversation endpoint
 app.use('/api/conversation', conversationLimiter, validateAuth, conversationRoutes);
-app.use('/api/sales', validateAuth, salesRoutes);
 app.use('/api/sales', validateAuth, salesRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/analytics', validateAuth, analyticsRoutes);
