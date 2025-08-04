@@ -3,6 +3,8 @@ const { body, query, param, validationResult } = require('express-validator');
 const { dbHelpers, supabaseAdmin } = require('../config/database');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { checkResourceOwnership } = require('../middleware/auth');
+const { updateSale, deleteSale } = require('../services/salesService');
+const { validate: validateUuid } = require('uuid');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -170,92 +172,31 @@ router.get(
 );
 
 /**
- * DELETE /api/sales/:saleId
- * Cancel/delete a sale (mark as anulada)
+ * DELETE /api/v1/sales/:venta_id
+ * Elimina una venta de forma permanente
  */
-router.delete(
-  '/:saleId',
-  [
-    param('saleId')
-      .isUUID()
-      .withMessage('Sale ID must be a valid UUID')
-  ],
-  asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: 'Validation failed',
-        details: errors.array()
-      });
+router.delete('/:venta_id', async (req, res) => {
+  const usuarioId = req.user.id;
+  const { venta_id } = req.params;
+
+  try {
+    const { data, error } = await deleteSale(venta_id, usuarioId);
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Venta no encontrada' });
+      }
+      return res.status(500).json({ error: 'Error al eliminar la venta' });
     }
 
-    const { saleId } = req.params;
-    const userId = req.user.usuario_id;
-
-    try {
-      // First check if sale exists and belongs to user
-      const { data: existingSale, error: fetchError } = await dbHelpers.supabase
-        .from('Ventas')
-        .select('venta_id, usuario_id, anulada')
-        .eq('venta_id', saleId)
-        .eq('usuario_id', userId)
-        .single();
-
-      if (fetchError) {
-        if (fetchError.code === 'PGRST116') {
-          return res.status(404).json({
-            success: false,
-            error: 'Sale not found'
-          });
-        }
-        throw fetchError;
-      }
-
-      if (existingSale.anulada) {
-        return res.status(400).json({
-          success: false,
-          error: 'Sale is already cancelled'
-        });
-      }
-
-      // Mark sale as cancelled
-      const { data: updatedSale, error: updateError } = await dbHelpers.supabase
-        .from('Ventas')
-        .update({ anulada: true })
-        .eq('venta_id', saleId)
-        .select()
-        .single();
-
-      if (updateError) throw updateError;
-
-      logger.logDBOperation('UPDATE', 'Ventas', userId, {
-        saleId,
-        action: 'cancelled'
-      });
-
-      res.json({
-        success: true,
-        data: {
-          sale: updatedSale,
-          message: 'Sale cancelled successfully'
-        }
-      });
-
-    } catch (error) {
-      logger.error('Failed to cancel sale:', {
-        userId,
-        saleId,
-        error: error.message
-      });
-
-      res.status(500).json({
-        success: false,
-        error: 'Failed to cancel sale'
-      });
+    if (!data) {
+      return res.status(404).json({ error: 'Venta no encontrada' });
     }
-  })
-);
+
+    return res.status(204).send();
+  } catch (err) {
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
 
 /**
  * GET /api/sales/analytics/summary
@@ -499,149 +440,68 @@ router.get(
   })
 );
 
+// Campos permitidos para actualización de ventas
+const CAMPOS_PERMITIDOS = ['total_venta', 'incompleta', 'anulada', 'fecha_hora', 'cliente_id'];
+
 /**
- * PUT /api/sales/:saleId
- * Update a sale - modify total and client
+ * PUT /api/v1/sales/:venta_id
+ * Editar una venta existente
  */
-router.put(
-  '/:saleId',
-  [
-    param('saleId')
-      .isUUID()
-      .withMessage('Sale ID must be a valid UUID'),
-    body('total_venta')
-      .optional()
-      .isFloat({ min: 0 })
-      .withMessage('Total must be a positive number'),
-    body('cliente_id')
-      .optional()
-      .isUUID()
-      .withMessage('Client ID must be a valid UUID'),
-    body('notas')
-      .optional()
-      .isLength({ max: 500 })
-      .withMessage('Notes must be less than 500 characters')
-  ],
-  asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: 'Validation failed',
-        details: errors.array()
-      });
+router.put('/:venta_id', async (req, res) => {
+  const usuarioId = req.user.id;
+  const { venta_id } = req.params;
+  const body = req.body || {};
+
+  // Validar que solo se envían campos permitidos
+  const camposInvalidos = Object.keys(body).filter(k => !CAMPOS_PERMITIDOS.includes(k));
+  if (camposInvalidos.length > 0) {
+    return res.status(400).json({ error: `Campos no permitidos: ${camposInvalidos.join(', ')}` });
+  }
+
+  // Validaciones básicas de tipos de datos
+  if (body.total_venta !== undefined) {
+    if (typeof body.total_venta !== 'number' || body.total_venta < 0) {
+      return res.status(400).json({ error: 'total_venta debe ser un número positivo' });
+    }
+  }
+  if (body.incompleta !== undefined && typeof body.incompleta !== 'boolean') {
+    return res.status(400).json({ error: 'incompleta debe ser boolean' });
+  }
+  if (body.anulada !== undefined && typeof body.anulada !== 'boolean') {
+    return res.status(400).json({ error: 'anulada debe ser boolean' });
+  }
+  if (body.fecha_hora !== undefined) {
+    const fechaValida = !isNaN(Date.parse(body.fecha_hora));
+    if (!fechaValida) {
+      return res.status(400).json({ error: 'fecha_hora debe ser fecha ISO válida' });
+    }
+  }
+  if (body.cliente_id !== undefined && !validateUuid(body.cliente_id)) {
+    return res.status(400).json({ error: 'cliente_id debe ser UUID válido' });
+  }
+
+  if (Object.keys(body).length === 0) {
+    return res.status(400).json({ error: 'No hay campos para actualizar' });
+  }
+
+  try {
+    const { data, error } = await updateSale(venta_id, usuarioId, body);
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Venta no encontrada' });
+      }
+      return res.status(500).json({ error: 'Error al actualizar la venta' });
     }
 
-    const { saleId } = req.params;
-    const { total_venta, cliente_id, notas } = req.body;
-    const userId = req.user.usuario_id;
-
-    try {
-      // First check if sale exists and belongs to user
-      const { data: existingSale, error: fetchError } = await supabaseAdmin
-        .from('Ventas')
-        .select('venta_id, usuario_id, anulada, total_venta')
-        .eq('venta_id', saleId)
-        .eq('usuario_id', userId)
-        .single();
-
-      if (fetchError) {
-        if (fetchError.code === 'PGRST116') {
-          return res.status(404).json({
-            success: false,
-            error: 'Sale not found'
-          });
-        }
-        throw fetchError;
-      }
-
-      if (existingSale.anulada) {
-        return res.status(400).json({
-          success: false,
-          error: 'Cannot edit a cancelled sale'
-        });
-      }
-
-      // Verify client belongs to user if client_id is provided
-      if (cliente_id) {
-        const { data: client, error: clientError } = await supabaseAdmin
-          .from('Clientes')
-          .select('cliente_id')
-          .eq('cliente_id', cliente_id)
-          .eq('usuario_id', userId)
-          .single();
-
-        if (clientError || !client) {
-          return res.status(400).json({
-            success: false,
-            error: 'Client not found or does not belong to user'
-          });
-        }
-      }
-
-      // Prepare update data - only include provided fields
-      const updateData = {};
-      if (total_venta !== undefined) updateData.total_venta = total_venta;
-      if (cliente_id !== undefined) updateData.cliente_id = cliente_id;
-      if (notas !== undefined) updateData.notas = notas;
-
-      // Only proceed if there's something to update
-      if (Object.keys(updateData).length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'No fields provided to update'
-        });
-      }
-
-      // Update sale
-      const { data: updatedSale, error: updateError } = await supabaseAdmin
-        .from('Ventas')
-        .update(updateData)
-        .eq('venta_id', saleId)
-        .select(`
-          *,
-          Clientes(nombre),
-          Detalle_ventas(*,
-            Productos(*),
-            Promociones(*)
-          ),
-          Pagos_venta(*,
-            Metodos_pago(*)
-          )
-        `)
-        .single();
-
-      if (updateError) throw updateError;
-
-      logger.logDBOperation('UPDATE', 'Ventas', userId, {
-        saleId,
-        updatedFields: Object.keys(updateData),
-        oldTotal: existingSale.total_venta,
-        newTotal: updateData.total_venta || existingSale.total_venta
-      });
-
-      res.json({
-        success: true,
-        data: {
-          sale: updatedSale,
-          message: 'Sale updated successfully'
-        }
-      });
-
-    } catch (error) {
-      logger.error('Failed to update sale:', {
-        userId,
-        saleId,
-        updateData,
-        error: error.message
-      });
-
-      res.status(500).json({
-        success: false,
-        error: 'Failed to update sale'
-      });
+    if (!data) {
+      return res.status(404).json({ error: 'Venta no encontrada' });
     }
-  })
-);
+
+    return res.status(200).json(data);
+  } catch (err) {
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
 
 module.exports = router; 
