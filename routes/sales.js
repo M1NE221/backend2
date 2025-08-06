@@ -441,7 +441,7 @@ router.get(
 );
 
 // Campos permitidos para actualización de ventas
-const CAMPOS_PERMITIDOS = ['total_venta', 'incompleta', 'anulada', 'fecha_hora', 'cliente_id'];
+const CAMPOS_PERMITIDOS = ['total_venta', 'incompleta', 'anulada', 'fecha_hora', 'cliente_id', 'notas'];
 
 /**
  * PUT /api/sales/:venta_id
@@ -479,6 +479,9 @@ router.put('/:venta_id', async (req, res) => {
   if (body.cliente_id !== undefined && !validateUuid(body.cliente_id)) {
     return res.status(400).json({ error: 'cliente_id debe ser UUID válido' });
   }
+  if (body.notas !== undefined && typeof body.notas !== 'string') {
+    return res.status(400).json({ error: 'notas debe ser string' });
+  }
 
   if (Object.keys(body).length === 0) {
     return res.status(400).json({ error: 'No hay campos para actualizar' });
@@ -498,7 +501,13 @@ router.put('/:venta_id', async (req, res) => {
       return res.status(404).json({ error: 'Venta no encontrada' });
     }
 
-    return res.status(200).json(data);
+    return res.status(200).json({
+      success: true,
+      data: {
+        sale: data,
+        message: 'Venta actualizada correctamente'
+      }
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Error interno del servidor' });
   }

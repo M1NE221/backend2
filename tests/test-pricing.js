@@ -1,5 +1,5 @@
-const { AIService } = require('./services/aiService');
-const { dbHelpers } = require('./config/database');
+const { AIService } = require('../services/aiService');
+const { dbHelpers } = require('../config/database');
 
 async function testEnhancedPricing() {
   console.log('🧪 Testing Enhanced Product Auto-Creation with Price Tracking...\n');

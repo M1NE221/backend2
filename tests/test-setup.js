@@ -101,7 +101,7 @@ console.log('\nOptional (with defaults):');
 // Basic syntax check
 console.log('\n🔍 Basic syntax validation...');
 try {
-  require('./server.js');
+  require('../server.js');
   console.log('❌ Server started (this should not happen in test mode)');
   process.exit(1);
 } catch (error) {

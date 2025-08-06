@@ -3,11 +3,12 @@ const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 const { dbHelpers, supabaseAdmin } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
-const { 
-  buildSystemPrompt: createSystemPrompt, 
-  buildExtractionPrompt: createExtractionPrompt, 
-  buildInsightsPrompt: createInsightsPrompt 
+const {
+  buildSystemPrompt: createSystemPrompt,
+  buildExtractionPrompt: createExtractionPrompt,
+  buildInsightsPrompt: createInsightsPrompt
 } = require('./systemPrompt');
+const { updateSale, deleteSale } = require('./salesService');
 
 class AIService {
   constructor() {
@@ -20,7 +21,7 @@ class AIService {
     });
     
     this.model = process.env.OPENAI_MODEL || 'gpt-3.5-turbo-1106';
-    this.maxTokens = parseInt(process.env.OPENAI_MAX_TOKENS) || 1000;
+    this.maxTokens = parseInt(process.env.OPENAI_MAX_TOKENS) || 2000;
     this.temperature = parseFloat(process.env.OPENAI_TEMPERATURE) || 0.5;
   }
 
@@ -88,13 +89,33 @@ class AIService {
       // Check if input contains business data to extract
       const extractionResult = await this.extractBusinessData(userInput, authenticatedUserId, userProducts, paymentMethods);
       
-      // Generate AI response
-      const aiResponse = await this.generateResponse(
-        systemPrompt, 
-        userInput, 
-        conversationContext,
-        extractionResult
-      );
+      let aiResponse;
+      if (['update_sale', 'delete_sale'].includes(extractionResult.action)) {
+        try {
+          const saleId = extractionResult.saleId;
+          if (extractionResult.action === 'update_sale') {
+            const { error } = await updateSale(saleId, authenticatedUserId, extractionResult.fields || {});
+            aiResponse = error
+              ? { content: `Error al actualizar la venta: ${error.message}`, tokensUsed: 0 }
+              : { content: 'Venta actualizada correctamente', tokensUsed: 0 };
+          } else {
+            const { error } = await deleteSale(saleId, authenticatedUserId);
+            aiResponse = error
+              ? { content: `Error al eliminar la venta: ${error.message}`, tokensUsed: 0 }
+              : { content: 'Venta eliminada correctamente', tokensUsed: 0 };
+          }
+        } catch (err) {
+          aiResponse = { content: `Error procesando la venta: ${err.message}`, tokensUsed: 0 };
+        }
+      } else {
+        // Generate AI response
+        aiResponse = await this.generateResponse(
+          systemPrompt, 
+          userInput, 
+          conversationContext,
+          extractionResult
+        );
+      }
 
       const processingTime = Date.now() - startTime;
       
@@ -111,7 +132,8 @@ class AIService {
         response: aiResponse.content,
         dataExtracted: extractionResult.extracted,
         processingTime,
-        tokensUsed: aiResponse.tokensUsed
+        tokensUsed: aiResponse.tokensUsed,
+        businessAction: extractionResult.action || (extractionResult.extracted ? extractionResult.type : null)
       };
 
     } catch (error) {
@@ -140,12 +162,37 @@ class AIService {
       logger.info('Data extraction result:', {
         userId,
         input: input.substring(0, 100) + '...',
+        action: extractedData.action || null,
+        saleId: extractedData.sale_id || null,
         hasSaleData: extractedData.hasSaleData,
         hasExpenseData: extractedData.hasExpenseData,
         extractedTotal: extractedData.sale?.total || 0,
         itemCount: extractedData.sale?.items?.length || 0
       });
       
+
+      if (extractedData.action) {
+        const saleId = extractedData.sale_id || extractedData.saleId;
+        const fields = extractedData.fields || extractedData.update_fields;
+        if (extractedData.action === 'update_sale' && saleId) {
+          return {
+            extracted: true,
+            type: 'sale',
+            action: 'update_sale',
+            saleId,
+            fields: fields || {}
+          };
+        }
+        if (extractedData.action === 'delete_sale' && saleId) {
+          return {
+            extracted: true,
+            type: 'sale',
+            action: 'delete_sale',
+            saleId
+          };
+        }
+      }
+
       // Validate extracted sale data before saving
       if (extractedData.hasSaleData && extractedData.sale) {
         // Validate that we have actual sale data
