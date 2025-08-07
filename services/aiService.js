@@ -92,7 +92,13 @@ class AIService {
       let aiResponse;
       if (['update_sale', 'delete_sale'].includes(extractionResult.action)) {
         try {
-          const saleId = extractionResult.saleId;
+          let saleId = extractionResult.saleId;
+          if (!saleId && recentSales && recentSales.length > 0) {
+            saleId = recentSales[0].venta_id;
+          }
+          if (!saleId) {
+            throw new Error('No se encontró una venta para realizar la operación solicitada');
+          }
           if (extractionResult.action === 'update_sale') {
             const { error } = await updateSale(saleId, authenticatedUserId, extractionResult.fields || {});
             aiResponse = error
@@ -163,7 +169,7 @@ class AIService {
         userId,
         input: input.substring(0, 100) + '...',
         action: extractedData.action || null,
-        saleId: extractedData.sale_id || null,
+        saleId: extractedData.sale_id || extractedData.saleId || null,
         hasSaleData: extractedData.hasSaleData,
         hasExpenseData: extractedData.hasExpenseData,
         extractedTotal: extractedData.sale?.total || 0,
@@ -172,9 +178,9 @@ class AIService {
       
 
       if (extractedData.action) {
-        const saleId = extractedData.sale_id || extractedData.saleId;
+        const saleId = extractedData.sale_id || extractedData.saleId || null;
         const fields = extractedData.fields || extractedData.update_fields;
-        if (extractedData.action === 'update_sale' && saleId) {
+        if (extractedData.action === 'update_sale') {
           return {
             extracted: true,
             type: 'sale',
@@ -183,7 +189,7 @@ class AIService {
             fields: fields || {}
           };
         }
-        if (extractedData.action === 'delete_sale' && saleId) {
+        if (extractedData.action === 'delete_sale') {
           return {
             extracted: true,
             type: 'sale',

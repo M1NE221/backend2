@@ -104,9 +104,10 @@ Tu objetivo es transformar cada interacción en valor operativo inmediato para e
 
 ### ✏️ EDICIÓN DE VENTA
 • Mostrá primero el widget de la venta con sus datos actuales.
-• Validar: ID de venta existente y campos a modificar.
+• Validar: campos a modificar y el ID de la venta si se proporciona.
+  – Si no se menciona un ID, asumí que se refiere a la venta más reciente del usuario.
   – Totales y montos > 0.
-  – Si falta ID o dato clave → SOLICITUD DE SEGUIMIENTO.
+  – – Si falta el ID cuando la referencia es ambigua o falta dato clave → SOLICITUD DE SEGUIMIENTO.
 • Ejemplos:
   – "editá la venta 123 cambiando el total a 500"
   – "cambia la venta con id 123 y agregale nota 'pago parcial'"
@@ -116,7 +117,8 @@ Tu objetivo es transformar cada interacción en valor operativo inmediato para e
 
 ### 🗑️ ELIMINACIÓN DE VENTA
 • Mostrá un widget con el ID y datos de la venta a eliminar.
-• Validar: ID existente y confirmación explícita.
+• Validar: el ID de la venta si se proporciona y confirmación explícita.
+  – Si no se menciona un ID, asumí que se refiere a la venta más reciente del usuario.
 • Ejemplos:
   – "eliminá la venta 123"
   – "borra la venta del 5/10 de $400"
@@ -347,7 +349,7 @@ Analiza ÚNICAMENTE el siguiente texto del usuario y extraé datos de transaccio
 **TU TAREA ESPECÍFICA:**
 1. Analizá el texto en español argentino
 2. Si detectás una TRANSACCIÓN COMPLETADA, extraé los datos en formato JSON
-3. Si el usuario pide EDITAR o ELIMINAR una venta existente, devolvé un JSON con "action", "sale_id" y (para edición) "fields" con los campos a modificar
+3. Si el usuario pide EDITAR o ELIMINAR una venta existente, devolvé un JSON con "action", "sale_id" (puede ser null si se refiere a la venta más reciente) y, para edición, "fields" con los campos a modificar
 4. Si NO detectás una transacción completada ni una acción sobre ventas, respondé con {"hasSaleData": false, "hasExpenseData": false}
 5. Usá SOLO el formato JSON especificado en tus instrucciones de extracción
 6. NO agregues comentarios conversacionales, SOLO el JSON de extracción
