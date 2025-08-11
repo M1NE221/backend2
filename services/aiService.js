@@ -81,8 +81,78 @@ class AIService {
       // Build system prompt with business context
       const systemPrompt = this.buildSystemPrompt(user, userProducts, paymentMethods, recentSales);
       
+      // Check for delete sale commands before extraction
+      const deleteCommand = this.detectDeleteSale(userInput);
+      if (deleteCommand) {
+        let targetSaleId = deleteCommand.saleId || conversationContext.lastSaleId;
+        if (targetSaleId) {
+          await this.cancelSale(targetSaleId, authenticatedUserId);
+          conversationContext.lastSaleId = targetSaleId;
+          const deletionResult = {
+            extracted: true,
+            type: 'sale_deletion',
+            data: { saleId: targetSaleId }
+          };
+          const aiResponse = await this.generateResponse(
+            systemPrompt,
+            userInput,
+            conversationContext,
+            deletionResult
+          );
+          const processingTime = Date.now() - startTime;
+          logger.logAIInteraction(
+            authenticatedUserId,
+            userInput,
+            aiResponse.content,
+            processingTime,
+            aiResponse.tokensUsed
+          );
+          return {
+            response: aiResponse.content,
+            dataExtracted: true,
+            processingTime,
+            tokensUsed: aiResponse.tokensUsed,
+            lastSaleId: conversationContext.lastSaleId
+          };
+        }
+      }
+
       // Check if input contains business data to extract
-      const extractionResult = await this.extractBusinessData(userInput, authenticatedUserId, userProducts, paymentMethods);
+      const extractionResult = await this.extractBusinessData(
+        userInput,
+        authenticatedUserId,
+        userProducts,
+        paymentMethods
+      );
+// Store last sale id when a sale was saved
+      if (extractionResult.savedSale) {
+        conversationContext.lastSaleId = extractionResult.savedSale.venta_id;
+      }
+      // Track last saved sale ID in conversation context
+      if (extractionResult.savedSale?.venta_id) {
+        conversationContext.lastSaleId = extractionResult.savedSale.venta_id;
+      }
+
+      // Handle sale cancellation requests
+      if (extractionResult.action === 'cancel_sale') {
+        const saleIdToCancel =
+          extractionResult.saleId || conversationContext.lastSaleId;
+        if (saleIdToCancel) {
+          const cancelledSale = await this.cancelSale(
+            authenticatedUserId,
+            saleIdToCancel
+          );
+          extractionResult.extracted = true;
+          extractionResult.type = 'cancel_sale';
+          extractionResult.data = { saleId: saleIdToCancel };
+          extractionResult.cancelledSale = cancelledSale;
+          conversationContext.lastSaleId = null;
+        } else {
+          extractionResult.extracted = true;
+          extractionResult.type = 'cancel_sale_error';
+          extractionResult.data = { message: 'No sale ID available to cancel' };
+        }
+      }
       
       // Generate AI response
       const aiResponse = await this.generateResponse(
@@ -107,12 +177,59 @@ class AIService {
         response: aiResponse.content,
         dataExtracted: extractionResult.extracted,
         processingTime,
-        tokensUsed: aiResponse.tokensUsed
+        tokensUsed: aiResponse.tokensUsed,
+        context: conversationContext.lastSaleId
       };
 
     } catch (error) {
       logger.error('AI Service Error:', error);
       throw new Error('Failed to process conversation: ' + error.message);
+    }
+  }
+
+  /**
+   * Detect delete sale command and extract sale ID if present
+   */
+  detectDeleteSale(input) {
+    const deleteRegex = /(eliminar|elimina|borrar|borra|cancelar|cancela|anular|anula)/i;
+    if (!deleteRegex.test(input)) return null;
+    const idMatch = input.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    return { saleId: idMatch ? idMatch[0] : null };
+  }
+
+  /**
+   * Cancel a sale (mark as anulada)
+   */
+  async cancelSale(saleId, userId) {
+    try {
+      const { data: existingSale, error: fetchError } = await supabaseAdmin
+        .from('Ventas')
+        .select('venta_id, usuario_id, anulada')
+        .eq('venta_id', saleId)
+        .eq('usuario_id', userId)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (existingSale.anulada) return existingSale;
+
+      const { data: updatedSale, error: updateError } = await supabaseAdmin
+        .from('Ventas')
+        .update({ anulada: true })
+        .eq('venta_id', saleId)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      logger.logDBOperation('UPDATE', 'Ventas', userId, {
+        saleId,
+        action: 'cancelled'
+      });
+
+      return updatedSale;
+    } catch (error) {
+      logger.error('Failed to cancel sale:', { saleId, userId, error: error.message });
+      throw error;
     }
   }
 
@@ -220,6 +337,10 @@ VALIDATION RULES:
 
       const extractedData = JSON.parse(response.choices[0].message.content);
       
+      if (extractedData.action === 'cancel_sale') {
+        return { action: 'cancel_sale', saleId: extractedData.saleId || null };
+      }
+
       // Log what was extracted for debugging
       logger.info('Data extraction result:', {
         userId,
@@ -409,6 +530,23 @@ VALIDATION RULES:
     } catch (error) {
       logger.error('Failed to save sale data:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Cancel a sale for a user
+   */
+  async cancelSale(userId, saleId) {
+    try {
+      const sale = await dbHelpers.cancelSale(userId, saleId);
+      return { success: true, sale };
+    } catch (error) {
+      logger.error('Failed to cancel sale:', {
+        userId,
+        saleId,
+        error: error.message
+      });
+      throw new Error('Failed to cancel sale: ' + error.message);
     }
   }
 
@@ -737,14 +875,20 @@ VALIDATION RULES:
 
     // If we extracted data, inform the AI
     if (extractionResult.extracted) {
-      const dataPrompt = `
+      let dataPrompt;
+      if (extractionResult.type === 'cancel_sale') {
+        dataPrompt = `A sale has been cancelled in the database.\nSale ID: ${extractionResult.data.saleId}\nAcknowledge the cancellation to the user.`;
+      } else if (extractionResult.type === 'cancel_sale_error') {
+        dataPrompt = `The user requested to cancel a sale but no sale ID was available. Inform the user that the cancellation could not be completed.`;
+      } else {
+        dataPrompt = `
 The user's message contained business data that has been automatically processed:
 - Type: ${extractionResult.type}
 - Data: ${JSON.stringify(extractionResult.data, null, 2)}
 ${extractionResult.savedSale ? `- Saved to database with ID: ${extractionResult.savedSale.venta_id}` : ''}
 
 Acknowledge this transaction naturally and provide relevant business insights.
-`;
+`;}
       messages.push({ role: 'system', content: dataPrompt });
     }
 

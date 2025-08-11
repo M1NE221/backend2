@@ -75,6 +75,37 @@ const dbHelpers = {
         paymentsCount: payments?.length || 0
       });
 
+      // Determine daily order number for the sale
+      const saleDate = new Date(saleData.fecha_hora || new Date());
+      const startOfDay = new Date(saleDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(saleDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const { data: lastOrderData, error: lastOrderError } = await supabaseAdmin
+        .from('Ventas')
+        .select('orden_diario')
+        .eq('usuario_id', saleData.usuario_id)
+        .gte('fecha_hora', startOfDay.toISOString())
+        .lte('fecha_hora', endOfDay.toISOString())
+        .order('orden_diario', { ascending: false })
+        .limit(1);
+
+      if (lastOrderError) {
+        logger.error('Failed to fetch daily order:', {
+          error: lastOrderError,
+          userId: saleData.usuario_id,
+          date: saleData.fecha_hora
+        });
+        throw lastOrderError;
+      }
+
+      const nextOrder = (lastOrderData && lastOrderData.length > 0
+        ? lastOrderData[0].orden_diario
+        : 0) + 1;
+      saleData.orden_diario = nextOrder;
+
+
       const { data: sale, error: saleError } = await supabaseAdmin
         .from('Ventas')
         .insert(saleData)
@@ -179,8 +210,8 @@ const dbHelpers = {
   },
 
   // Get sales with details for a user (using service role)
-  async getSalesWithDetails(userId, limit = 50, offset = 0) {
-    const { data, error } = await supabaseAdmin
+  async getSalesWithDetails(userId, limit = 50, offset = 0, includeCancelled = false) {
+    let query = supabaseAdmin
       .from('Ventas')
       .select(`
         *,
@@ -193,7 +224,13 @@ const dbHelpers = {
           Metodos_pago(*)
         )
       `)
-      .eq('usuario_id', userId)
+      .eq('usuario_id', userId);
+
+    if (!includeCancelled) {
+      query = query.eq('anulada', false);
+    }
+
+    const { data, error } = await query
       .order('fecha_hora', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -296,8 +333,53 @@ const dbHelpers = {
     if (insertError) throw insertError;
 
     return inserted.cliente_id;
+  },
+
+  // Cancel a sale by marking it as anulada
+  async cancelSale(userId, saleId) {
+    // Verify sale ownership
+    const { data: sale, error: fetchError } = await supabaseAdmin
+      .from('Ventas')
+      .select('venta_id, usuario_id, anulada')
+      .eq('venta_id', saleId)
+      .eq('usuario_id', userId)
+      .single();
+
+    if (fetchError) {
+      if (fetchError.code === 'PGRST116') {
+        const err = new Error('Sale not found');
+        err.code = 'NOT_FOUND';
+        throw err;
+      }
+      throw fetchError;
+    }
+
+    if (sale.anulada) {
+      const err = new Error('Sale already cancelled');
+      err.code = 'ALREADY_CANCELLED';
+      throw err;
+    }
+
+    const { data: updatedSale, error: updateError } = await supabaseAdmin
+      .from('Ventas')
+      .update({ anulada: true })
+      .eq('venta_id', saleId)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    logger.logDBOperation('UPDATE', 'Ventas', userId, {
+      saleId,
+      action: 'cancelled'
+    });
+
+    return updatedSale;
   }
 };
+
+// Expose supabase client for routes that rely on it
+dbHelpers.supabase = supabase;
 
 module.exports = {
   supabase,

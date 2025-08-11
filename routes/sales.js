@@ -51,8 +51,17 @@ router.get(
     const userId = req.user.usuario_id;
 
     try {
-      let sales = await dbHelpers.getSalesWithDetails(userId, parseInt(limit), parseInt(offset));
+      let sales = await dbHelpers.getSalesWithDetails(
+        userId,
+        parseInt(limit),
+        parseInt(offset)
+      );
 
+      // Exclude cancelled sales
+      sales = sales.filter(sale => sale.anulada === false);
+
+      // Hide cancelled sales by default
+      sales = sales.filter(sale => !sale.anulada);
       // Filter by date range if provided
       if (startDate || endDate) {
         sales = sales.filter(sale => {
@@ -137,6 +146,7 @@ router.get(
         `)
         .eq('venta_id', saleId)
         .eq('usuario_id', userId)
+        .eq('anulada', false)
         .single();
 
       if (error) {
@@ -194,45 +204,7 @@ router.delete(
     const userId = req.user.usuario_id;
 
     try {
-      // First check if sale exists and belongs to user
-      const { data: existingSale, error: fetchError } = await dbHelpers.supabase
-        .from('Ventas')
-        .select('venta_id, usuario_id, anulada')
-        .eq('venta_id', saleId)
-        .eq('usuario_id', userId)
-        .single();
-
-      if (fetchError) {
-        if (fetchError.code === 'PGRST116') {
-          return res.status(404).json({
-            success: false,
-            error: 'Sale not found'
-          });
-        }
-        throw fetchError;
-      }
-
-      if (existingSale.anulada) {
-        return res.status(400).json({
-          success: false,
-          error: 'Sale is already cancelled'
-        });
-      }
-
-      // Mark sale as cancelled
-      const { data: updatedSale, error: updateError } = await dbHelpers.supabase
-        .from('Ventas')
-        .update({ anulada: true })
-        .eq('venta_id', saleId)
-        .select()
-        .single();
-
-      if (updateError) throw updateError;
-
-      logger.logDBOperation('UPDATE', 'Ventas', userId, {
-        saleId,
-        action: 'cancelled'
-      });
+      const updatedSale = await dbHelpers.cancelSale(userId, saleId);
 
       res.json({
         success: true,
@@ -243,6 +215,20 @@ router.delete(
       });
 
     } catch (error) {
+      if (error.code === 'NOT_FOUND') {
+        return res.status(404).json({
+          success: false,
+          error: 'Sale not found'
+        });
+      }r
+
+      if (error.code === 'ALREADY_CANCELLED') {
+        return res.status(404).json({
+          success: false,
+          error: 'Sale not found'
+        });
+      }
+
       logger.error('Failed to cancel sale:', {
         userId,
         saleId,

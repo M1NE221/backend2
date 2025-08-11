@@ -85,9 +85,13 @@ The server will start on `http://localhost:3000`
 
 ### Sales Management
 - `GET /api/sales` - Get user sales (with pagination)
+- Each sale item includes an `orden_diario` field showing its sequence number for the day
 - `GET /api/sales/:saleId` - Get specific sale details
 - `DELETE /api/sales/:saleId` - Cancel a sale
 - `GET /api/sales/analytics/summary` - Sales analytics summary
+
+Cancelled sales are soft deleted (`anulada=true`) and hidden from results by default.
+Requests for a cancelled or non-existent sale will return `404 Not Found`.
 
 ### Business Analytics
 - `GET /api/analytics/dashboard` - Main dashboard analytics

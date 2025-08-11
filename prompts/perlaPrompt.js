@@ -75,6 +75,7 @@ Tu objetivo es transformar cada interacción en valor operativo inmediato para e
 • Si el mensaje trata sobre productos/catálogo → <product_catalog_management>
 • Si el mensaje involucra clientes → <customer_operations>
 • Si el mensaje menciona promociones → <promotion_management>
+• Si el mensaje solicita cancelar/eliminar una venta → <sale_cancellation>
 • Si faltan datos esenciales o confianza < 90% → <followup_request>
 • Si el pedido es unclear después de elementos visibles → <unclear_intent>
 </intent_routing>
@@ -121,6 +122,12 @@ function includeSectionDefinitions() {
 • Para consultas: Mostrá promociones disponibles.
 • Formato: Promoción | Descripción | Disponible
 </promotion_management>
+
+sale_cancellation>
+• Mostrá widget de confirmación.
+• Invocá cancelSale.
+• Confirmá: "Venta eliminada".
+</sale_cancellation>
 
 <followup_request>
 • Mostrá Widget con campos faltantes marcados "¿?".
