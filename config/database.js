@@ -254,6 +254,41 @@ const dbHelpers = {
     return data;
   },
 
+  /**
+   * Get sales for a specific date (YYYY-MM-DD) for a user, excluding cancelled, ascending by fecha_hora
+   */
+  async getSalesByDate(userId, dateISO) {
+    const date = new Date(dateISO);
+    if (isNaN(date.getTime())) {
+      throw new Error(`Invalid dateISO: ${dateISO}`);
+    }
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const { data, error } = await supabaseAdmin
+      .from('Ventas')
+      .select(`
+        *,
+        Detalle_ventas(*,
+          Productos(*),
+          Promociones(*)
+        ),
+        Pagos_venta(*,
+          Metodos_pago(*)
+        )
+      `)
+      .eq('usuario_id', userId)
+      .eq('anulada', false)
+      .gte('fecha_hora', startOfDay.toISOString())
+      .lte('fecha_hora', endOfDay.toISOString())
+      .order('fecha_hora', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
   // Get all payment methods (using service role)
   async getPaymentMethods() {
     const { data, error } = await supabaseAdmin

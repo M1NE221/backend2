@@ -58,9 +58,6 @@ router.get(
       );
 
       // Exclude cancelled sales
-      sales = sales.filter(sale => sale.anulada === false);
-
-      // Hide cancelled sales by default
       sales = sales.filter(sale => !sale.anulada);
       // Filter by date range if provided
       if (startDate || endDate) {
@@ -102,6 +99,83 @@ router.get(
       res.status(500).json({
         success: false,
         error: 'Failed to fetch sales'
+      });
+    }
+  })
+);
+
+/**
+ * GET /api/sales/day
+ * Get sales for a specific day
+ */
+router.get(
+  '/day',
+  [
+    query('date')
+      .optional()
+      .isISO8601()
+      .withMessage('Date must be valid ISO8601 format (YYYY-MM-DD)')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    const userId = req.user.usuario_id;
+    const dateISO = (req.query.date || new Date().toISOString().slice(0, 10));
+
+    try {
+      const sales = await dbHelpers.getSalesByDate(userId, dateISO);
+
+      const rows = sales.map((sale, idx) => {
+        const ordinal = idx + 1;
+        const items = sale.Detalle_ventas || [];
+        const itemsLabel = items
+          .map(d => d.Productos?.nombre || d.producto_alt || 'Sin nombre')
+          .join(' - ');
+        const cantidades = items
+          .map(d => String(d.cantidad))
+          .join(' - ');
+
+        const pagos = sale.Pagos_venta || [];
+        const medioPagoLabel = pagos.length > 0
+          ? pagos.map(p => p.Metodos_pago?.nombre || 'Desconocido').join(' / ')
+          : 'N/D';
+
+        const total = parseFloat(sale.total_venta);
+
+        return {
+          ordinal,
+          venta_id: sale.venta_id,
+          itemsLabel,
+          cantidades,
+          medioPagoLabel,
+          total
+        };
+      });
+
+      res.json({
+        success: true,
+        data: {
+          date: dateISO,
+          rows
+        }
+      });
+    } catch (error) {
+      logger.error('Failed to fetch daily sales:', {
+        userId,
+        dateISO,
+        error: error.message
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch daily sales'
       });
     }
   })
@@ -220,7 +294,7 @@ router.delete(
           success: false,
           error: 'Sale not found'
         });
-      }r
+      }
 
       if (error.code === 'ALREADY_CANCELLED') {
         return res.status(404).json({

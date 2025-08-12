@@ -86,7 +86,8 @@ router.post(
           processingTime: result.processingTime,
           tokensUsed: result.tokensUsed,
           lastSaleId: result.lastSaleId,
-          context: result.context
+          context: result.context,
+          ui: result.ui || null
         },
         timestamp: new Date().toISOString()
       });

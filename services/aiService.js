@@ -42,7 +42,18 @@ class AIService {
   /**
    * Main conversation handler - processes user input and returns AI response
    */
-  async processConversation(userInput, userId, conversationContext = [], userToken = null) {
+  async processConversation(userInput, userId, conversationContext = { messages: [], lastSaleId: null }, userToken = null) {
+    // Ensure conversationContext has the correct structure and create a copy
+    if (!conversationContext || typeof conversationContext !== 'object') {
+      conversationContext = { messages: [], lastSaleId: null };
+    } else {
+      // Create a copy to avoid modifying the original, preserving extra fields
+      conversationContext = {
+        ...conversationContext,
+        messages: Array.isArray(conversationContext.messages) ? [...conversationContext.messages] : [],
+        lastSaleId: conversationContext.lastSaleId ?? null
+      };
+    }
     const startTime = Date.now();
     
     try {
@@ -81,13 +92,87 @@ class AIService {
       // Build system prompt with business context
       const systemPrompt = this.buildSystemPrompt(user, userProducts, paymentMethods, recentSales);
       
+      // 1) If there is a pending deletion context and the user provided an ordinal, try to cancel that sale
+      const ordinal = this.detectOrdinalSelection(userInput);
+      const nowTs = Date.now();
+      const PENDING_WINDOW_MS = 3 * 60 * 1000; // 3 minutes
+      if (
+        ordinal &&
+        conversationContext.pendingDeletion &&
+        conversationContext.pendingDeletion.indexToSaleId &&
+        (!conversationContext.lastSalesListShownAt || (nowTs - conversationContext.lastSalesListShownAt) <= PENDING_WINDOW_MS)
+      ) {
+        const saleIdFromOrdinal = conversationContext.pendingDeletion.indexToSaleId[String(ordinal)];
+        if (saleIdFromOrdinal) {
+          await this.cancelSale(authenticatedUserId, saleIdFromOrdinal);
+          // Clear lastSaleId and pendingDeletion
+          conversationContext.lastSaleId = null;
+          delete conversationContext.pendingDeletion;
+          delete conversationContext.lastSalesListShownAt;
+
+          const processingTime = Date.now() - startTime;
+          const responseText = 'Perfecto, venta eliminada';
+          logger.logAIInteraction(
+            authenticatedUserId,
+            userInput,
+            responseText,
+            processingTime,
+            0
+          );
+          return {
+            response: responseText,
+            dataExtracted: true,
+            processingTime,
+            tokensUsed: 0,
+            lastSaleId: null,
+            context: { ...conversationContext }
+          };
+        }
+      }
+
+      // 2) Detect intent to list today's sales for deletion guidance
+      if (this.detectListSalesIntent(userInput)) {
+        const dateISO = new Date().toISOString().slice(0, 10);
+        const listResult = await this.listDailySales(authenticatedUserId, dateISO);
+
+        // Store mapping in context for later ordinal-based deletion
+        conversationContext.pendingDeletion = {
+          dateISO,
+          indexToSaleId: listResult.indexToSaleId
+        };
+        conversationContext.lastSalesListShownAt = Date.now();
+
+        const processingTime = Date.now() - startTime;
+        const responseText = listResult.rows.length > 0
+          ? 'Estas son tus ventas de hoy. ¿Qué venta querés eliminar?'
+          : 'Hoy no hay ventas registradas.';
+
+        logger.logAIInteraction(
+          authenticatedUserId,
+          userInput,
+          responseText,
+          processingTime,
+          0
+        );
+
+        return {
+          response: responseText,
+          dataExtracted: false,
+          processingTime,
+          tokensUsed: 0,
+          lastSaleId: conversationContext.lastSaleId,
+          context: { ...conversationContext },
+          ui: listResult.ui
+        };
+      }
+
       // Check for delete sale commands before extraction
       const deleteCommand = this.detectDeleteSale(userInput);
       if (deleteCommand) {
         let targetSaleId = deleteCommand.saleId || conversationContext.lastSaleId;
         if (targetSaleId) {
-          await this.cancelSale(targetSaleId, authenticatedUserId);
-          conversationContext.lastSaleId = targetSaleId;
+          await this.cancelSale(authenticatedUserId, targetSaleId);
+          conversationContext.lastSaleId = null; // Clear lastSaleId after cancellation
           const deletionResult = {
             extracted: true,
             type: 'sale_deletion',
@@ -96,7 +181,7 @@ class AIService {
           const aiResponse = await this.generateResponse(
             systemPrompt,
             userInput,
-            conversationContext,
+            conversationContext.messages,
             deletionResult
           );
           const processingTime = Date.now() - startTime;
@@ -112,7 +197,11 @@ class AIService {
             dataExtracted: true,
             processingTime,
             tokensUsed: aiResponse.tokensUsed,
-            lastSaleId: conversationContext.lastSaleId
+            lastSaleId: null, // Explicitly return null after cancellation
+            context: {
+              ...conversationContext,
+              lastSaleId: null // Ensure context also has null lastSaleId
+            }
           };
         }
       }
@@ -124,11 +213,8 @@ class AIService {
         userProducts,
         paymentMethods
       );
-// Store last sale id when a sale was saved
-      if (extractionResult.savedSale) {
-        conversationContext.lastSaleId = extractionResult.savedSale.venta_id;
-      }
-      // Track last saved sale ID in conversation context
+
+      // Store last sale id when a sale was saved
       if (extractionResult.savedSale?.venta_id) {
         conversationContext.lastSaleId = extractionResult.savedSale.venta_id;
       }
@@ -146,7 +232,7 @@ class AIService {
           extractionResult.type = 'cancel_sale';
           extractionResult.data = { saleId: saleIdToCancel };
           extractionResult.cancelledSale = cancelledSale;
-          conversationContext.lastSaleId = null;
+          conversationContext.lastSaleId = null; // Clear lastSaleId after cancellation
         } else {
           extractionResult.extracted = true;
           extractionResult.type = 'cancel_sale_error';
@@ -158,7 +244,7 @@ class AIService {
       const aiResponse = await this.generateResponse(
         systemPrompt, 
         userInput, 
-        conversationContext,
+        conversationContext.messages,
         extractionResult
       );
 
@@ -178,7 +264,8 @@ class AIService {
         dataExtracted: extractionResult.extracted,
         processingTime,
         tokensUsed: aiResponse.tokensUsed,
-        context: conversationContext.lastSaleId
+        lastSaleId: conversationContext.lastSaleId,
+        context: { ...conversationContext } // Return a copy to avoid reference issues
       };
 
     } catch (error) {
@@ -188,49 +275,87 @@ class AIService {
   }
 
   /**
-   * Detect delete sale command and extract sale ID if present
+   * Detect list daily sales intent
    */
-  detectDeleteSale(input) {
-    const deleteRegex = /(eliminar|elimina|borrar|borra|cancelar|cancela|anular|anula)/i;
-    if (!deleteRegex.test(input)) return null;
-    const idMatch = input.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-    return { saleId: idMatch ? idMatch[0] : null };
+  detectListSalesIntent(input) {
+    if (!input) return false;
+    const text = String(input).toLowerCase();
+    const patterns = [
+      /necesito\s+eliminar\s+una\s+venta/, // need to delete a sale -> we will list
+      /mostrar\s+ventas\s+de\s+hoy/,
+      /qué\s+ventas\s+hay\s+hoy/,
+      /listar\s+ventas\s+de\s+hoy/,
+      /ventas\s+del\s+d[ií]a/,
+      /eliminar\s+una\s+venta\s+de\s+hoy/
+    ];
+    return patterns.some(r => r.test(text));
   }
 
   /**
-   * Cancel a sale (mark as anulada)
+   * Detect ordinal selection like "La 2" or "venta número 3"
    */
-  async cancelSale(saleId, userId) {
-    try {
-      const { data: existingSale, error: fetchError } = await supabaseAdmin
-        .from('Ventas')
-        .select('venta_id, usuario_id, anulada')
-        .eq('venta_id', saleId)
-        .eq('usuario_id', userId)
-        .single();
+  detectOrdinalSelection(input) {
+    if (!input) return null;
+    const match = String(input).toLowerCase().match(/(?:la|venta)?\s*(?:n[uú]mero\s*)?(\d{1,3})\b/);
+    return match ? parseInt(match[1], 10) : null;
+  }
 
-      if (fetchError) throw fetchError;
-      if (existingSale.anulada) return existingSale;
+  /**
+   * List daily sales and return UI table and index mapping
+   */
+  async listDailySales(userId, dateISO) {
+    const sales = await dbHelpers.getSalesByDate(userId, dateISO);
+    const rows = sales.map((sale, idx) => {
+      const ordinal = idx + 1;
+      const items = sale.Detalle_ventas || [];
+      const itemsLabel = items
+        .map(d => d.Productos?.nombre || d.producto_alt || 'Sin nombre')
+        .join(' - ');
+      const cantidades = items
+        .map(d => String(d.cantidad))
+        .join(' - ');
+      const pagos = sale.Pagos_venta || [];
+      const medioPagoLabel = pagos.length > 0
+        ? pagos.map(p => p.Metodos_pago?.nombre || 'Desconocido').join(' / ')
+        : 'N/D';
+      const total = parseFloat(sale.total_venta);
+      return {
+        ordinal,
+        venta_id: sale.venta_id,
+        itemsLabel,
+        cantidades,
+        medioPagoLabel,
+        total
+      };
+    });
 
-      const { data: updatedSale, error: updateError } = await supabaseAdmin
-        .from('Ventas')
-        .update({ anulada: true })
-        .eq('venta_id', saleId)
-        .select()
-        .single();
+    const indexToSaleId = Object.fromEntries(rows.map(r => [String(r.ordinal), r.venta_id]));
 
-      if (updateError) throw updateError;
+    // Build UI payload
+    const title = new Date(dateISO).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
+    const ui = {
+      table: {
+        title,
+        columns: ['Número', 'Ítems vendidos', 'Cantidad', 'Medio de Pago', 'Total'],
+        rows: rows.map(r => [String(r.ordinal), r.itemsLabel, r.cantidades, r.medioPagoLabel, `$${r.total.toLocaleString('es-AR')}`])
+      }
+    };
 
-      logger.logDBOperation('UPDATE', 'Ventas', userId, {
-        saleId,
-        action: 'cancelled'
-      });
+    return { rows, indexToSaleId, ui };
+  }
 
-      return updatedSale;
-    } catch (error) {
-      logger.error('Failed to cancel sale:', { saleId, userId, error: error.message });
-      throw error;
-    }
+  /**
+   * Detect delete sale command and extract sale ID if present
+   */
+  detectDeleteSale(input) {
+    const deleteRegex = /(eliminar|elimina|borrar|borra|cancelar|cancela|anular|anula|anulá)/i;
+    if (!deleteRegex.test(input)) return null;
+    
+    // Look for UUID in the input
+    const idMatch = input.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    
+    // Return the command with or without specific sale ID
+    return { saleId: idMatch ? idMatch[0] : null };
   }
 
   /**
@@ -865,8 +990,8 @@ VALIDATION RULES:
       { role: 'system', content: systemPrompt }
     ];
 
-    // Add conversation context
-    if (context && context.length > 0) {
+    // Add conversation context (context is now an array of messages)
+    if (context && Array.isArray(context) && context.length > 0) {
       messages.push(...context.slice(-10)); // Keep last 10 messages for context
     }
 
